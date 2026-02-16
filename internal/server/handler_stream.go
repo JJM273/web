@@ -328,6 +328,17 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			}
 			session.HandleServerFps(evt)
 
+		case streaming.TypeProjectileEvent:
+			if session == nil {
+				continue
+			}
+			var evt core.ProjectileEvent
+			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
+				slog.Warn("stream: invalid projectile_event", "error", err)
+				continue
+			}
+			session.HandleProjectileEvent(evt)
+
 		case streaming.TypeTimeState:
 			if session == nil {
 				continue
@@ -338,6 +349,9 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 				continue
 			}
 			session.HandleTimeState(ts)
+
+		default:
+			slog.Warn("stream: unknown message type", "type", envelope.Type)
 		}
 	}
 }

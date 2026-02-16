@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,9 +18,10 @@ import (
 
 // soldierRecord tracks a soldier and their accumulated states/events.
 type soldierRecord struct {
-	Soldier     core.Soldier
-	States      []core.SoldierState
-	FiredEvents []core.FiredEvent
+	Soldier      core.Soldier
+	States       []core.SoldierState
+	FiredEvents  []core.FiredEvent
+	Projectiles  []core.ProjectileEvent
 }
 
 // vehicleRecord tracks a vehicle and their accumulated states.
@@ -59,6 +61,8 @@ type Session struct {
 	times  []core.TimeState
 
 	frameCount uint // highest CaptureFrame seen + 1
+
+	projectileMarkerSeq uint // counter for unique projectile marker names
 
 	// v2 chunk flusher (optional, nil for v1-only sessions).
 	chunkFlusher *ChunkFlusher
@@ -198,6 +202,31 @@ func (s *Session) HandleKillEvent(evt core.KillEvent) {
 	s.trackFrame(evt.CaptureFrame)
 }
 
+// HandleProjectileEvent processes a projectile event following the extension's builder.go logic:
+// - Bullets (shotBullet) become fire lines on the soldier entity
+// - Non-bullets (grenades, rockets, missiles) become moving markers with trajectory
+// - All projectiles with hits generate hit events
+func (s *Session) HandleProjectileEvent(evt core.ProjectileEvent) {
+	s.trackFrame(evt.CaptureFrame)
+
+	if !isProjectileMarker(evt.SimulationType) {
+		// Bullets become fire lines on the soldier entity (need >= 2 trajectory points).
+		if len(evt.Trajectory) >= 2 {
+			if rec, ok := s.soldiers[evt.FirerObjectID]; ok {
+				rec.Projectiles = append(rec.Projectiles, evt)
+			}
+		}
+	} else {
+		// Non-bullet projectiles become moving markers.
+		s.addProjectileMarker(evt)
+	}
+
+	// Hit events from ALL projectiles (both bullets and non-bullets).
+	if len(evt.Hits) > 0 {
+		s.addProjectileHits(evt)
+	}
+}
+
 // HandleHitEvent stores a hit event.
 func (s *Session) HandleHitEvent(evt core.HitEvent) {
 	s.events = append(s.events, eventRecord{
@@ -246,6 +275,165 @@ func (s *Session) HandleServerFps(evt core.ServerFpsEvent) {
 func (s *Session) HandleTimeState(ts core.TimeState) {
 	s.times = append(s.times, ts)
 	s.trackFrame(ts.CaptureFrame)
+}
+
+// addProjectileMarker creates a moving marker from a non-bullet projectile.
+// Matches the extension's builder.go logic for marker creation.
+func (s *Session) addProjectileMarker(evt core.ProjectileEvent) {
+	if len(evt.Trajectory) == 0 {
+		return
+	}
+
+	// Determine icon and color.
+	iconFilename := extractFilename(evt.MagazineIcon)
+	var markerType, color string
+	if iconFilename != "" {
+		markerType = "magIcons/" + iconFilename
+		color = "ColorWhite"
+	} else {
+		markerType = "mil_triangle"
+		color = "ColorRed"
+	}
+
+	// Determine text.
+	var text string
+	switch {
+	case evt.VehicleObjectID != nil && *evt.VehicleObjectID != evt.FirerObjectID:
+		vehicleName := ""
+		if vr, ok := s.vehicles[*evt.VehicleObjectID]; ok {
+			vehicleName = vr.Vehicle.DisplayName
+		}
+		text = fmt.Sprintf("%s %s - %s", vehicleName, evt.MuzzleDisplay, evt.MagazineDisplay)
+	case evt.SimulationType == "shotGrenade":
+		text = evt.MagazineDisplay
+	default:
+		text = fmt.Sprintf("%s - %s", evt.MuzzleDisplay, evt.MagazineDisplay)
+	}
+
+	// EndFrame is the last trajectory point's frame.
+	endFrame := int(evt.Trajectory[len(evt.Trajectory)-1].Frame)
+
+	// Generate unique marker name.
+	s.projectileMarkerSeq++
+	name := fmt.Sprintf("_projectile_%d", s.projectileMarkerSeq)
+
+	firstTP := evt.Trajectory[0]
+	marker := core.Marker{
+		CaptureFrame: firstTP.Frame,
+		EndFrame:     endFrame,
+		MarkerName:   name,
+		MarkerType:   markerType,
+		Text:         text,
+		OwnerID:      int(evt.FirerObjectID),
+		Color:        color,
+		Size:         "[1,1]",
+		Shape:        "ICON",
+		Alpha:        1.0,
+		Brush:        "Solid",
+		Position:     firstTP.Position,
+	}
+
+	rec := &markerRecord{Marker: marker}
+	for i := 1; i < len(evt.Trajectory); i++ {
+		tp := evt.Trajectory[i]
+		rec.States = append(rec.States, core.MarkerState{
+			CaptureFrame: tp.Frame,
+			Position:     tp.Position,
+			Alpha:        1.0,
+		})
+	}
+
+	s.markers[name] = rec
+}
+
+// addProjectileHits extracts hit events from a projectile.
+// Matches the extension's builder.go hit event extraction.
+func (s *Session) addProjectileHits(evt core.ProjectileEvent) {
+	weaponName := evt.MuzzleDisplay
+	if weaponName == "" {
+		weaponName = evt.WeaponDisplay
+	}
+	eventText := formatWeaponText(weaponName, evt.MagazineDisplay)
+
+	var startPos core.Position3D
+	if len(evt.Trajectory) > 0 {
+		startPos = evt.Trajectory[0].Position
+	}
+
+	shooterID := uint(evt.FirerObjectID)
+
+	for _, hit := range evt.Hits {
+		dx := float64(startPos.X - hit.Position.X)
+		dy := float64(startPos.Y - hit.Position.Y)
+		dist := float32(math.Sqrt(dx*dx + dy*dy))
+
+		hitEvt := core.HitEvent{
+			CaptureFrame:     hit.CaptureFrame,
+			ShooterSoldierID: &shooterID,
+			EventText:        eventText,
+			Distance:         dist,
+			WeaponName:       weaponName,
+			WeaponMagazine:   evt.MagazineDisplay,
+		}
+
+		if hit.SoldierID != nil {
+			v := uint(*hit.SoldierID)
+			hitEvt.VictimSoldierID = &v
+		}
+		if hit.VehicleID != nil {
+			v := uint(*hit.VehicleID)
+			hitEvt.VictimVehicleID = &v
+		}
+		if evt.VehicleObjectID != nil {
+			v := uint(*evt.VehicleObjectID)
+			hitEvt.ShooterVehicleID = &v
+		}
+
+		s.events = append(s.events, eventRecord{
+			eventType: "hit",
+			frame:     hit.CaptureFrame,
+			hit:       &hitEvt,
+		})
+		s.trackFrame(hit.CaptureFrame)
+	}
+}
+
+// projectileEndPos returns the best end position for a projectile fire line:
+// last hit position if any, otherwise last trajectory point.
+func projectileEndPos(pe core.ProjectileEvent) core.Position3D {
+	if len(pe.Hits) > 0 {
+		return pe.Hits[len(pe.Hits)-1].Position
+	}
+	if len(pe.Trajectory) > 0 {
+		return pe.Trajectory[len(pe.Trajectory)-1].Position
+	}
+	return core.Position3D{}
+}
+
+// isProjectileMarker returns true if the projectile should be rendered as a
+// moving marker rather than a fire-line. Bullets are fire-lines; everything
+// else (grenades, rockets, missiles, shells, etc.) becomes a marker.
+func isProjectileMarker(sim string) bool {
+	return sim != "shotBullet"
+}
+
+// extractFilename returns the last path component from a file path.
+// Handles both forward and backslash separators (Arma uses backslashes).
+func extractFilename(path string) string {
+	for i := len(path) - 1; i >= 0; i-- {
+		if path[i] == '/' || path[i] == '\\' {
+			return path[i+1:]
+		}
+	}
+	return path
+}
+
+// formatWeaponText formats weapon and magazine into display text: "weapon [magazine]".
+func formatWeaponText(weapon, magazine string) string {
+	if magazine == "" {
+		return weapon
+	}
+	return weapon + " [" + magazine + "]"
 }
 
 // trackFrame updates frameCount to be max(current, frame+1).
@@ -355,11 +543,18 @@ func (s *Session) entitiesToV1() []any {
 			positions = append(positions, pos)
 		}
 
-		firedFrames := make([][]any, 0, len(rec.FiredEvents))
+		firedFrames := make([][]any, 0, len(rec.FiredEvents)+len(rec.Projectiles))
 		for _, fe := range rec.FiredEvents {
 			firedFrames = append(firedFrames, []any{
 				fe.CaptureFrame,
 				[]float64{fe.EndPos.X, fe.EndPos.Y, fe.EndPos.Z},
+			})
+		}
+		for _, pe := range rec.Projectiles {
+			endPos := projectileEndPos(pe)
+			firedFrames = append(firedFrames, []any{
+				pe.CaptureFrame,
+				[]float64{endPos.X, endPos.Y, endPos.Z},
 			})
 		}
 

@@ -146,12 +146,26 @@ func soldierDefToProto(rec *soldierRecord) *pbv2.SoldierDef {
 
 	for _, fe := range rec.FiredEvents {
 		def.FramesFired = append(def.FramesFired, &pbv2.FiredFrame{
-			FrameNum: uint32(fe.CaptureFrame),
-			StartPos: pos3DToProto(fe.StartPos),
-			EndPos:   pos3DToProto(fe.EndPos),
-			Weapon:   fe.Weapon,
-			Magazine: fe.Magazine,
+			FrameNum:   uint32(fe.CaptureFrame),
+			StartPos:   pos3DToProto(fe.StartPos),
+			EndPos:     pos3DToProto(fe.EndPos),
+			Weapon:     fe.Weapon,
+			Magazine:   fe.Magazine,
 			FiringMode: fe.FiringMode,
+		})
+	}
+	for _, pe := range rec.Projectiles {
+		endPos := projectileEndPos(pe)
+		startPos := core.Position3D{}
+		if len(pe.Trajectory) > 0 {
+			startPos = pe.Trajectory[0].Position
+		}
+		def.FramesFired = append(def.FramesFired, &pbv2.FiredFrame{
+			FrameNum: uint32(pe.CaptureFrame),
+			StartPos: pos3DToProto(startPos),
+			EndPos:   pos3DToProto(endPos),
+			Weapon:   pe.WeaponDisplay,
+			Magazine: pe.MagazineDisplay,
 		})
 	}
 

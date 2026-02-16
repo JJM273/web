@@ -36,6 +36,7 @@ const SIDE_MAP: Record<number, Side> = {
 };
 
 const MARKER_SIDE_MAP: Record<number, string> = {
+  [PbSide.SIDE_UNKNOWN]: "GLOBAL", // markers without a side are visible to all
   ...SIDE_MAP,
   [PbSide.SIDE_GLOBAL]: "GLOBAL",
 };
@@ -254,7 +255,7 @@ function convertMarkerDef(pb: PbMarkerDef): AppMarkerDef {
     player: pb.playerId,
     alpha,
     startFrame: pb.startFrame,
-    endFrame: pb.endFrame,
+    endFrame: pb.endFrame || -1, // 0 (proto default) means "show forever"
   };
   if (pb.text) marker.text = pb.text;
   if (pb.size.length >= 2) marker.size = [pb.size[0], pb.size[1]];
