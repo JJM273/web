@@ -201,11 +201,9 @@ function convertEvent(pb: PbEvent): EventDef | null {
     };
   }
   if (pb.serverFps) {
-    return {
-      frameNum,
-      type: "generalEvent",
-      message: `avg=${pb.serverFps.fpsAverage.toFixed(1)} min=${pb.serverFps.fpsMin.toFixed(1)}`,
-    };
+    // Server FPS is performance telemetry, not a gameplay event.
+    // Extracted separately into manifest.serverFps for metrics display.
+    return null;
   }
   if (pb.general) {
     return {
@@ -295,6 +293,18 @@ export class ProtobufDecoderV2 implements DecoderStrategy {
       extensionVersion: pb.mission?.extensionVersion || undefined,
       addonVersion: pb.mission?.addonVersion || undefined,
     };
+
+    // Extract server FPS telemetry (separate from gameplay events).
+    const fpsSamples = pb.events
+      .filter((e) => e.serverFps)
+      .map((e) => ({
+        frameNum: e.frameNum,
+        fpsAverage: e.serverFps!.fpsAverage,
+        fpsMin: e.serverFps!.fpsMin,
+      }));
+    if (fpsSamples.length > 0) {
+      manifest.serverFps = fpsSamples;
+    }
 
     // v2 world metadata.
     if (pb.world) {

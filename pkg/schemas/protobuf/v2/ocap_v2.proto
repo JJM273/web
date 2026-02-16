@@ -161,11 +161,13 @@ message HitEvent {
 message ProjectileEvent {
   uint32 firer_id = 1;
   uint32 vehicle_id = 2;
-  string weapon = 3;
-  string magazine = 4;
+  string weapon = 3;        // WeaponDisplay
+  string magazine = 4;      // MagazineDisplay
   string simulation_type = 5;
   repeated TrajectoryPoint trajectory = 6;
   repeated ProjectileHit hits = 7;
+  string muzzle = 8;        // MuzzleDisplay
+  string magazine_icon = 9; // MagazineIcon (Arma path for ammo icon)
 }
 
 message TrajectoryPoint {

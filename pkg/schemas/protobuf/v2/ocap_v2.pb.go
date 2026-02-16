@@ -1429,11 +1429,13 @@ type ProjectileEvent struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	FirerId        uint32                 `protobuf:"varint,1,opt,name=firer_id,json=firerId,proto3" json:"firer_id,omitempty"`
 	VehicleId      uint32                 `protobuf:"varint,2,opt,name=vehicle_id,json=vehicleId,proto3" json:"vehicle_id,omitempty"`
-	Weapon         string                 `protobuf:"bytes,3,opt,name=weapon,proto3" json:"weapon,omitempty"`
-	Magazine       string                 `protobuf:"bytes,4,opt,name=magazine,proto3" json:"magazine,omitempty"`
+	Weapon         string                 `protobuf:"bytes,3,opt,name=weapon,proto3" json:"weapon,omitempty"`     // WeaponDisplay
+	Magazine       string                 `protobuf:"bytes,4,opt,name=magazine,proto3" json:"magazine,omitempty"` // MagazineDisplay
 	SimulationType string                 `protobuf:"bytes,5,opt,name=simulation_type,json=simulationType,proto3" json:"simulation_type,omitempty"`
 	Trajectory     []*TrajectoryPoint     `protobuf:"bytes,6,rep,name=trajectory,proto3" json:"trajectory,omitempty"`
 	Hits           []*ProjectileHit       `protobuf:"bytes,7,rep,name=hits,proto3" json:"hits,omitempty"`
+	Muzzle         string                 `protobuf:"bytes,8,opt,name=muzzle,proto3" json:"muzzle,omitempty"`                                 // MuzzleDisplay
+	MagazineIcon   string                 `protobuf:"bytes,9,opt,name=magazine_icon,json=magazineIcon,proto3" json:"magazine_icon,omitempty"` // MagazineIcon (Arma path for ammo icon)
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -1515,6 +1517,20 @@ func (x *ProjectileEvent) GetHits() []*ProjectileHit {
 		return x.Hits
 	}
 	return nil
+}
+
+func (x *ProjectileEvent) GetMuzzle() string {
+	if x != nil {
+		return x.Muzzle
+	}
+	return ""
+}
+
+func (x *ProjectileEvent) GetMagazineIcon() string {
+	if x != nil {
+		return x.MagazineIcon
+	}
+	return ""
 }
 
 type TrajectoryPoint struct {
@@ -3089,7 +3105,7 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\bdistance\x18\b \x01(\x02R\bdistance\x12*\n" +
 	"\x11victim_is_vehicle\x18\t \x01(\bR\x0fvictimIsVehicle\x12,\n" +
 	"\x12shooter_is_vehicle\x18\n" +
-	" \x01(\bR\x10shooterIsVehicle\"\x8e\x02\n" +
+	" \x01(\bR\x10shooterIsVehicle\"\xcb\x02\n" +
 	"\x0fProjectileEvent\x12\x19\n" +
 	"\bfirer_id\x18\x01 \x01(\rR\afirerId\x12\x1d\n" +
 	"\n" +
@@ -3100,7 +3116,9 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\n" +
 	"trajectory\x18\x06 \x03(\v2\x18.ocap.v2.TrajectoryPointR\n" +
 	"trajectory\x12*\n" +
-	"\x04hits\x18\a \x03(\v2\x16.ocap.v2.ProjectileHitR\x04hits\"_\n" +
+	"\x04hits\x18\a \x03(\v2\x16.ocap.v2.ProjectileHitR\x04hits\x12\x16\n" +
+	"\x06muzzle\x18\b \x01(\tR\x06muzzle\x12#\n" +
+	"\rmagazine_icon\x18\t \x01(\tR\fmagazineIcon\"_\n" +
 	"\x0fTrajectoryPoint\x12/\n" +
 	"\bposition\x18\x01 \x01(\v2\x13.ocap.v2.Position3DR\bposition\x12\x1b\n" +
 	"\tframe_num\x18\x02 \x01(\rR\bframeNum\"\x84\x02\n" +

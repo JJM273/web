@@ -18,10 +18,11 @@ import (
 
 // soldierRecord tracks a soldier and their accumulated states/events.
 type soldierRecord struct {
-	Soldier      core.Soldier
-	States       []core.SoldierState
-	FiredEvents  []core.FiredEvent
-	Projectiles  []core.ProjectileEvent
+	Soldier     core.Soldier
+	States      []core.SoldierState
+	FiredEvents []core.FiredEvent
+	// bulletFireLines is populated at write time from session.projectiles.
+	bulletFireLines []core.ProjectileEvent
 }
 
 // vehicleRecord tracks a vehicle and their accumulated states.
@@ -57,12 +58,15 @@ type Session struct {
 	markers     map[string]*markerRecord
 	markersByID map[uint]*markerRecord // reverse index for MarkerState routing
 
-	events []eventRecord
-	times  []core.TimeState
+	events      []eventRecord
+	projectiles []core.ProjectileEvent // raw 1:1 storage, derived at write time
+	serverFps   []core.ServerFpsEvent
+	times       []core.TimeState
 
 	frameCount uint // highest CaptureFrame seen + 1
 
 	projectileMarkerSeq uint // counter for unique projectile marker names
+	projectilesDerived  bool // guard against double-derivation
 
 	// v2 chunk flusher (optional, nil for v1-only sessions).
 	chunkFlusher *ChunkFlusher
@@ -202,29 +206,11 @@ func (s *Session) HandleKillEvent(evt core.KillEvent) {
 	s.trackFrame(evt.CaptureFrame)
 }
 
-// HandleProjectileEvent processes a projectile event following the extension's builder.go logic:
-// - Bullets (shotBullet) become fire lines on the soldier entity
-// - Non-bullets (grenades, rockets, missiles) become moving markers with trajectory
-// - All projectiles with hits generate hit events
+// HandleProjectileEvent stores a raw projectile event for later derivation.
+// Raw events are stored 1:1; fire lines, markers, and hit events are derived at write time.
 func (s *Session) HandleProjectileEvent(evt core.ProjectileEvent) {
+	s.projectiles = append(s.projectiles, evt)
 	s.trackFrame(evt.CaptureFrame)
-
-	if !isProjectileMarker(evt.SimulationType) {
-		// Bullets become fire lines on the soldier entity (need >= 2 trajectory points).
-		if len(evt.Trajectory) >= 2 {
-			if rec, ok := s.soldiers[evt.FirerObjectID]; ok {
-				rec.Projectiles = append(rec.Projectiles, evt)
-			}
-		}
-	} else {
-		// Non-bullet projectiles become moving markers.
-		s.addProjectileMarker(evt)
-	}
-
-	// Hit events from ALL projectiles (both bullets and non-bullets).
-	if len(evt.Hits) > 0 {
-		s.addProjectileHits(evt)
-	}
 }
 
 // HandleHitEvent stores a hit event.
@@ -257,17 +243,9 @@ func (s *Session) HandleChatEvent(evt core.ChatEvent) {
 	s.trackFrame(evt.CaptureFrame)
 }
 
-// HandleServerFps stores a server FPS event as a general event.
+// HandleServerFps stores a server FPS sample as performance telemetry (not a gameplay event).
 func (s *Session) HandleServerFps(evt core.ServerFpsEvent) {
-	s.events = append(s.events, eventRecord{
-		eventType: "server_fps",
-		frame:     evt.CaptureFrame,
-		general: &core.GeneralEvent{
-			CaptureFrame: evt.CaptureFrame,
-			Name:         "server_fps",
-			Message:      fmt.Sprintf("avg=%.1f min=%.1f", evt.FpsAverage, evt.FpsMin),
-		},
-	})
+	s.serverFps = append(s.serverFps, evt)
 	s.trackFrame(evt.CaptureFrame)
 }
 
@@ -275,6 +253,34 @@ func (s *Session) HandleServerFps(evt core.ServerFpsEvent) {
 func (s *Session) HandleTimeState(ts core.TimeState) {
 	s.times = append(s.times, ts)
 	s.trackFrame(ts.CaptureFrame)
+}
+
+// deriveProjectileData processes raw projectile events into fire lines, markers,
+// and hit events. Called once at write time — never during ingestion.
+func (s *Session) deriveProjectileData() {
+	if s.projectilesDerived {
+		return
+	}
+	s.projectilesDerived = true
+
+	for _, evt := range s.projectiles {
+		if !isProjectileMarker(evt.SimulationType) {
+			// Bullets → fire lines on the soldier entity (need >= 2 trajectory points).
+			if len(evt.Trajectory) >= 2 {
+				if rec, ok := s.soldiers[evt.FirerObjectID]; ok {
+					rec.bulletFireLines = append(rec.bulletFireLines, evt)
+				}
+			}
+		} else {
+			// Non-bullet projectiles → moving markers.
+			s.addProjectileMarker(evt)
+		}
+
+		// All projectiles with hits → hit events.
+		if len(evt.Hits) > 0 {
+			s.addProjectileHits(evt)
+		}
+	}
 }
 
 // addProjectileMarker creates a moving marker from a non-bullet projectile.
@@ -449,6 +455,9 @@ func (s *Session) trackFrame(frame uint) {
 
 // ToV1JSON converts accumulated session data to the v1 JSON map structure.
 func (s *Session) ToV1JSON() map[string]any {
+	// Derive fire lines, markers, and hit events from raw projectile data.
+	s.deriveProjectileData()
+
 	result := map[string]any{
 		"worldName":    "",
 		"missionName":  "",
@@ -543,14 +552,14 @@ func (s *Session) entitiesToV1() []any {
 			positions = append(positions, pos)
 		}
 
-		firedFrames := make([][]any, 0, len(rec.FiredEvents)+len(rec.Projectiles))
+		firedFrames := make([][]any, 0, len(rec.FiredEvents)+len(rec.bulletFireLines))
 		for _, fe := range rec.FiredEvents {
 			firedFrames = append(firedFrames, []any{
 				fe.CaptureFrame,
 				[]float64{fe.EndPos.X, fe.EndPos.Y, fe.EndPos.Z},
 			})
 		}
-		for _, pe := range rec.Projectiles {
+		for _, pe := range rec.bulletFireLines {
 			endPos := projectileEndPos(pe)
 			firedFrames = append(firedFrames, []any{
 				pe.CaptureFrame,
@@ -663,14 +672,6 @@ func (s *Session) eventsToV1() []any {
 				[]any{sourceID, evt.EventText},
 				evt.Distance,
 			})
-
-		case "server_fps":
-			// Server FPS stored as general event
-			if e.general != nil {
-				events = append(events, []any{
-					e.general.CaptureFrame, "server_fps", e.general.Message,
-				})
-			}
 
 		default:
 			// generalEvent, chat, and other event types

@@ -178,6 +178,7 @@ export interface Manifest {
   extensionVersion?: string;
   addonVersion?: string;
   // v2 extensions
+  serverFps?: Array<{ frameNum: number; fpsAverage: number; fpsMin: number }>;
   world?: {
     worldSize?: number;
     latitude?: number;

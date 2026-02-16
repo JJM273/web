@@ -42,6 +42,9 @@ func WriteV2Manifest(session *Session, outputDir string, chunkCount uint32) erro
 }
 
 func buildManifest(session *Session, chunkCount uint32) *pbv2.Manifest {
+	// Derive fire lines, markers, and hit events from raw projectile data.
+	session.deriveProjectileData()
+
 	chunkSize := uint32(defaultChunkSize)
 
 	manifest := &pbv2.Manifest{
@@ -113,6 +116,22 @@ func buildManifest(session *Session, chunkCount uint32) *pbv2.Manifest {
 		}
 	}
 
+	// Raw projectile events (1:1 storage for future access).
+	for _, pe := range session.projectiles {
+		manifest.Events = append(manifest.Events, projectileToProtoEvent(pe))
+	}
+
+	// Server FPS (performance telemetry, stored as typed events separate from gameplay events).
+	for _, fps := range session.serverFps {
+		manifest.Events = append(manifest.Events, &pbv2.Event{
+			FrameNum: uint32(fps.CaptureFrame),
+			Event: &pbv2.Event_ServerFps{ServerFps: &pbv2.ServerFpsEvent{
+				FpsAverage: fps.FpsAverage,
+				FpsMin:     fps.FpsMin,
+			}},
+		})
+	}
+
 	// Markers.
 	for _, rec := range session.markers {
 		manifest.Markers = append(manifest.Markers, markerToProto(rec))
@@ -154,7 +173,7 @@ func soldierDefToProto(rec *soldierRecord) *pbv2.SoldierDef {
 			FiringMode: fe.FiringMode,
 		})
 	}
-	for _, pe := range rec.Projectiles {
+	for _, pe := range rec.bulletFireLines {
 		endPos := projectileEndPos(pe)
 		startPos := core.Position3D{}
 		if len(pe.Trajectory) > 0 {
@@ -264,18 +283,6 @@ func eventToProto(rec eventRecord) *pbv2.Event {
 			chat.SoldierId = uint32(*c.SoldierID)
 		}
 		evt.Event = &pbv2.Event_Chat{Chat: chat}
-
-	case "server_fps":
-		if rec.general == nil {
-			return nil
-		}
-		// Parse fps values from stored general event.
-		var avg, min float32
-		fmt.Sscanf(rec.general.Message, "avg=%f min=%f", &avg, &min)
-		evt.Event = &pbv2.Event_ServerFps{ServerFps: &pbv2.ServerFpsEvent{
-			FpsAverage: avg,
-			FpsMin:     min,
-		}}
 
 	default:
 		if rec.general != nil {
@@ -515,4 +522,45 @@ func manifestToJSON(m *pbv2.Manifest) map[string]any {
 	result["timeCount"] = len(m.Times)
 
 	return result
+}
+
+// projectileToProtoEvent converts a raw core.ProjectileEvent to a v2 proto Event.
+func projectileToProtoEvent(pe core.ProjectileEvent) *pbv2.Event {
+	proj := &pbv2.ProjectileEvent{
+		FirerId:        uint32(pe.FirerObjectID),
+		Weapon:         pe.WeaponDisplay,
+		Magazine:       pe.MagazineDisplay,
+		Muzzle:         pe.MuzzleDisplay,
+		MagazineIcon:   pe.MagazineIcon,
+		SimulationType: pe.SimulationType,
+	}
+	if pe.VehicleObjectID != nil {
+		proj.VehicleId = uint32(*pe.VehicleObjectID)
+	}
+	for _, tp := range pe.Trajectory {
+		proj.Trajectory = append(proj.Trajectory, &pbv2.TrajectoryPoint{
+			Position: pos3DToProto(tp.Position),
+			FrameNum: uint32(tp.Frame),
+		})
+	}
+	for _, h := range pe.Hits {
+		hit := &pbv2.ProjectileHit{
+			FrameNum:      uint32(h.CaptureFrame),
+			Position:      pos3DToProto(h.Position),
+			ComponentsHit: h.ComponentsHit,
+		}
+		if h.SoldierID != nil {
+			hit.SoldierId = uint32(*h.SoldierID)
+			hit.HitSoldier = true
+		}
+		if h.VehicleID != nil {
+			hit.VehicleId = uint32(*h.VehicleID)
+			hit.HitVehicle = true
+		}
+		proj.Hits = append(proj.Hits, hit)
+	}
+	return &pbv2.Event{
+		FrameNum: uint32(pe.CaptureFrame),
+		Event:    &pbv2.Event_Projectile{Projectile: proj},
+	}
 }

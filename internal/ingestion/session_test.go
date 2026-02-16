@@ -187,8 +187,11 @@ func TestSession_ServerFps(t *testing.T) {
 		CaptureFrame: 10, FpsAverage: 45.2, FpsMin: 30.1,
 	})
 
-	assert.Len(t, s.events, 1)
-	assert.Equal(t, "server_fps", s.events[0].eventType)
+	assert.Len(t, s.events, 0, "server FPS should not be stored as gameplay events")
+	assert.Len(t, s.serverFps, 1)
+	assert.InDelta(t, 45.2, s.serverFps[0].FpsAverage, 0.01)
+	assert.InDelta(t, 30.1, s.serverFps[0].FpsMin, 0.01)
+	assert.Equal(t, uint(11), s.frameCount) // frame 10 + 1
 }
 
 func TestSession_Finalize(t *testing.T) {
