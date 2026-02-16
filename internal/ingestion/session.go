@@ -1,0 +1,604 @@
+// Package ingestion accumulates streaming mission data and produces
+// v1 JSON recordings for the conversion pipeline.
+package ingestion
+
+import (
+	"compress/gzip"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/OCAP2/extension/v5/pkg/core"
+)
+
+// soldierRecord tracks a soldier and their accumulated states/events.
+type soldierRecord struct {
+	Soldier     core.Soldier
+	States      []core.SoldierState
+	FiredEvents []core.FiredEvent
+}
+
+// vehicleRecord tracks a vehicle and their accumulated states.
+type vehicleRecord struct {
+	Vehicle core.Vehicle
+	States  []core.VehicleState
+}
+
+// markerRecord tracks a marker and its accumulated states.
+type markerRecord struct {
+	Marker core.Marker
+	States []core.MarkerState
+}
+
+// eventRecord stores a generic event with its type for serialization.
+type eventRecord struct {
+	eventType string
+	frame     uint
+	kill      *core.KillEvent
+	hit       *core.HitEvent
+	general   *core.GeneralEvent
+	chat      *core.ChatEvent
+}
+
+// Session accumulates streaming mission data in memory.
+// All methods are called sequentially from a single goroutine (the WebSocket read loop).
+type Session struct {
+	mission *core.Mission
+	world   *core.World
+
+	soldiers    map[uint16]*soldierRecord
+	vehicles    map[uint16]*vehicleRecord
+	markers     map[string]*markerRecord
+	markersByID map[uint]*markerRecord // reverse index for MarkerState routing
+
+	events []eventRecord
+	times  []core.TimeState
+
+	frameCount uint // highest CaptureFrame seen + 1
+}
+
+// NewSession creates an empty ingestion session.
+func NewSession() *Session {
+	return &Session{
+		soldiers:    make(map[uint16]*soldierRecord),
+		vehicles:    make(map[uint16]*vehicleRecord),
+		markers:     make(map[string]*markerRecord),
+		markersByID: make(map[uint]*markerRecord),
+	}
+}
+
+// Mission returns the stored mission metadata.
+func (s *Session) Mission() *core.Mission { return s.mission }
+
+// World returns the stored world metadata.
+func (s *Session) World() *core.World { return s.world }
+
+// FrameCount returns the number of frames accumulated.
+func (s *Session) FrameCount() uint { return s.frameCount }
+
+// SetMission stores mission and world metadata from start_mission.
+func (s *Session) SetMission(mission *core.Mission, world *core.World) {
+	s.mission = mission
+	s.world = world
+}
+
+// HandleAddSoldier registers a new soldier entity.
+func (s *Session) HandleAddSoldier(sol core.Soldier) {
+	s.soldiers[sol.ID] = &soldierRecord{Soldier: sol}
+}
+
+// HandleSoldierState appends a state snapshot for a soldier.
+func (s *Session) HandleSoldierState(state core.SoldierState) {
+	rec, ok := s.soldiers[state.SoldierID]
+	if !ok {
+		rec = &soldierRecord{Soldier: core.Soldier{ID: state.SoldierID}}
+		s.soldiers[state.SoldierID] = rec
+	}
+	rec.States = append(rec.States, state)
+	s.trackFrame(state.CaptureFrame)
+}
+
+// HandleAddVehicle registers a new vehicle entity.
+func (s *Session) HandleAddVehicle(veh core.Vehicle) {
+	s.vehicles[veh.ID] = &vehicleRecord{Vehicle: veh}
+}
+
+// HandleVehicleState appends a state snapshot for a vehicle.
+func (s *Session) HandleVehicleState(state core.VehicleState) {
+	rec, ok := s.vehicles[state.VehicleID]
+	if !ok {
+		rec = &vehicleRecord{Vehicle: core.Vehicle{ID: state.VehicleID}}
+		s.vehicles[state.VehicleID] = rec
+	}
+	rec.States = append(rec.States, state)
+	s.trackFrame(state.CaptureFrame)
+}
+
+// HandleAddMarker registers a new marker.
+func (s *Session) HandleAddMarker(marker core.Marker) {
+	rec := &markerRecord{Marker: marker}
+	s.markers[marker.MarkerName] = rec
+	s.markersByID[marker.ID] = rec
+}
+
+// HandleMarkerState appends a state snapshot for a marker, routed by MarkerID.
+func (s *Session) HandleMarkerState(state core.MarkerState) {
+	rec, ok := s.markersByID[state.MarkerID]
+	if !ok {
+		return
+	}
+	rec.States = append(rec.States, state)
+}
+
+// HandleDeleteMarker sets the end frame for a marker.
+func (s *Session) HandleDeleteMarker(name string, endFrame uint) {
+	rec, ok := s.markers[name]
+	if !ok {
+		return
+	}
+	rec.Marker.EndFrame = int(endFrame)
+	rec.Marker.IsDeleted = true
+}
+
+// HandleFiredEvent appends a fired event to the corresponding soldier.
+func (s *Session) HandleFiredEvent(fe core.FiredEvent) {
+	rec, ok := s.soldiers[fe.SoldierID]
+	if !ok {
+		return
+	}
+	rec.FiredEvents = append(rec.FiredEvents, fe)
+	s.trackFrame(fe.CaptureFrame)
+}
+
+// HandleKillEvent stores a kill event.
+func (s *Session) HandleKillEvent(evt core.KillEvent) {
+	s.events = append(s.events, eventRecord{
+		eventType: "killed",
+		frame:     evt.CaptureFrame,
+		kill:      &evt,
+	})
+	s.trackFrame(evt.CaptureFrame)
+}
+
+// HandleHitEvent stores a hit event.
+func (s *Session) HandleHitEvent(evt core.HitEvent) {
+	s.events = append(s.events, eventRecord{
+		eventType: "hit",
+		frame:     evt.CaptureFrame,
+		hit:       &evt,
+	})
+	s.trackFrame(evt.CaptureFrame)
+}
+
+// HandleGeneralEvent stores a general event.
+func (s *Session) HandleGeneralEvent(evt core.GeneralEvent) {
+	s.events = append(s.events, eventRecord{
+		eventType: evt.Name,
+		frame:     evt.CaptureFrame,
+		general:   &evt,
+	})
+	s.trackFrame(evt.CaptureFrame)
+}
+
+// HandleChatEvent stores a chat event.
+func (s *Session) HandleChatEvent(evt core.ChatEvent) {
+	s.events = append(s.events, eventRecord{
+		eventType: "chat",
+		frame:     evt.CaptureFrame,
+		chat:      &evt,
+	})
+	s.trackFrame(evt.CaptureFrame)
+}
+
+// HandleServerFps stores a server FPS event as a general event.
+func (s *Session) HandleServerFps(evt core.ServerFpsEvent) {
+	s.events = append(s.events, eventRecord{
+		eventType: "server_fps",
+		frame:     evt.CaptureFrame,
+		general: &core.GeneralEvent{
+			CaptureFrame: evt.CaptureFrame,
+			Name:         "server_fps",
+			Message:      fmt.Sprintf("avg=%.1f min=%.1f", evt.FpsAverage, evt.FpsMin),
+		},
+	})
+	s.trackFrame(evt.CaptureFrame)
+}
+
+// HandleTimeState appends a time synchronization record.
+func (s *Session) HandleTimeState(ts core.TimeState) {
+	s.times = append(s.times, ts)
+	s.trackFrame(ts.CaptureFrame)
+}
+
+// trackFrame updates frameCount to be max(current, frame+1).
+func (s *Session) trackFrame(frame uint) {
+	if frame+1 > s.frameCount {
+		s.frameCount = frame + 1
+	}
+}
+
+// --- V1 JSON Serialization ---
+// Produces the same format as the extension's internal/storage/memory/export/v1/builder.go
+// which parser_v1.go in internal/storage/ is proven to parse.
+
+// ToV1JSON converts accumulated session data to the v1 JSON map structure.
+func (s *Session) ToV1JSON() map[string]any {
+	result := map[string]any{
+		"worldName":    "",
+		"missionName":  "",
+		"endFrame":     s.frameCount,
+		"captureDelay": float32(0),
+		"entities":     s.entitiesToV1(),
+		"events":       s.eventsToV1(),
+		"Markers":      s.markersToV1(),
+		"times":        s.timesToV1(),
+	}
+
+	if s.world != nil {
+		result["worldName"] = s.world.WorldName
+	}
+	if s.mission != nil {
+		result["missionName"] = s.mission.MissionName
+		result["captureDelay"] = s.mission.CaptureDelay
+		if s.mission.ExtensionVersion != "" {
+			result["extensionVersion"] = s.mission.ExtensionVersion
+		}
+		if s.mission.AddonVersion != "" {
+			result["addonVersion"] = s.mission.AddonVersion
+		}
+		if s.mission.ExtensionBuild != "" {
+			result["extensionBuild"] = s.mission.ExtensionBuild
+		}
+		if s.mission.Author != "" {
+			result["missionAuthor"] = s.mission.Author
+		}
+		if s.mission.Tag != "" {
+			result["tags"] = s.mission.Tag
+		}
+	}
+
+	return result
+}
+
+// entitiesToV1 converts soldiers and vehicles to v1 entity format.
+// Matches the extension's v1 builder: entities array indexed by ID.
+func (s *Session) entitiesToV1() []any {
+	// Find max entity ID to size array correctly (JS frontend uses entities[id])
+	var maxID uint16
+	for _, rec := range s.soldiers {
+		if rec.Soldier.ID > maxID {
+			maxID = rec.Soldier.ID
+		}
+	}
+	for _, rec := range s.vehicles {
+		if rec.Vehicle.ID > maxID {
+			maxID = rec.Vehicle.ID
+		}
+	}
+
+	if len(s.soldiers) == 0 && len(s.vehicles) == 0 {
+		return []any{}
+	}
+
+	entities := make([]any, maxID+1)
+	// Fill with placeholder maps for empty slots
+	for i := range entities {
+		entities[i] = map[string]any{
+			"id":            i,
+			"type":          "",
+			"name":          "",
+			"side":          "",
+			"isPlayer":      0,
+			"startFrameNum": 0,
+			"positions":     []any{},
+			"framesFired":   []any{},
+		}
+	}
+
+	for _, rec := range s.soldiers {
+		sol := rec.Soldier
+
+		positions := make([][]any, 0, len(rec.States))
+		for _, st := range rec.States {
+			var inVehicleID any = 0
+			if st.InVehicleObjectID != nil {
+				inVehicleID = *st.InVehicleObjectID
+			}
+
+			pos := []any{
+				[]float64{st.Position.X, st.Position.Y, st.Position.Z},
+				st.Bearing,
+				st.Lifestate,
+				inVehicleID,
+				st.UnitName,
+				boolToInt(st.IsPlayer),
+				st.CurrentRole,
+			}
+			positions = append(positions, pos)
+		}
+
+		firedFrames := make([][]any, 0, len(rec.FiredEvents))
+		for _, fe := range rec.FiredEvents {
+			firedFrames = append(firedFrames, []any{
+				fe.CaptureFrame,
+				[]float64{fe.EndPos.X, fe.EndPos.Y, fe.EndPos.Z},
+			})
+		}
+
+		entity := map[string]any{
+			"id":            sol.ID,
+			"type":          "unit",
+			"name":          sol.UnitName,
+			"side":          sol.Side,
+			"group":         sol.GroupID,
+			"isPlayer":      boolToInt(sol.IsPlayer),
+			"role":          sol.RoleDescription,
+			"startFrameNum": sol.JoinFrame,
+			"positions":     positions,
+			"framesFired":   firedFrames,
+		}
+		entities[sol.ID] = entity
+	}
+
+	for _, rec := range s.vehicles {
+		veh := rec.Vehicle
+
+		positions := make([][]any, 0, len(rec.States))
+		for _, st := range rec.States {
+			// Parse crew JSON string into actual JSON array
+			var crew any
+			if st.Crew != "" {
+				if err := json.Unmarshal([]byte(st.Crew), &crew); err != nil {
+					crew = []any{}
+				}
+			} else {
+				crew = []any{}
+			}
+
+			pos := []any{
+				[]float64{st.Position.X, st.Position.Y, st.Position.Z},
+				st.Bearing,
+				boolToInt(st.IsAlive),
+				crew,
+				[]uint{st.CaptureFrame, st.CaptureFrame},
+			}
+			positions = append(positions, pos)
+		}
+
+		entity := map[string]any{
+			"id":            veh.ID,
+			"type":          "vehicle",
+			"name":          veh.DisplayName,
+			"side":          "UNKNOWN",
+			"class":         veh.OcapType,
+			"isPlayer":      0,
+			"startFrameNum": veh.JoinFrame,
+			"positions":     positions,
+			"framesFired":   []any{},
+		}
+		entities[veh.ID] = entity
+	}
+
+	return entities
+}
+
+// eventsToV1 converts events to v1 format.
+// Uses the extension's "old" format: [frame, "killed", victimId, [killerId, weapon], distance]
+func (s *Session) eventsToV1() []any {
+	events := make([]any, 0, len(s.events))
+
+	for _, e := range s.events {
+		switch e.eventType {
+		case "killed":
+			evt := e.kill
+			var victimID uint
+			if evt.VictimVehicleID != nil {
+				victimID = *evt.VictimVehicleID
+			} else if evt.VictimSoldierID != nil {
+				victimID = *evt.VictimSoldierID
+			}
+			var killerID uint
+			if evt.KillerVehicleID != nil {
+				killerID = *evt.KillerVehicleID
+			} else if evt.KillerSoldierID != nil {
+				killerID = *evt.KillerSoldierID
+			}
+			events = append(events, []any{
+				evt.CaptureFrame, "killed",
+				victimID,
+				[]any{killerID, evt.EventText},
+				evt.Distance,
+			})
+
+		case "hit":
+			evt := e.hit
+			var victimID uint
+			if evt.VictimVehicleID != nil {
+				victimID = *evt.VictimVehicleID
+			} else if evt.VictimSoldierID != nil {
+				victimID = *evt.VictimSoldierID
+			}
+			var sourceID uint
+			if evt.ShooterVehicleID != nil {
+				sourceID = *evt.ShooterVehicleID
+			} else if evt.ShooterSoldierID != nil {
+				sourceID = *evt.ShooterSoldierID
+			}
+			events = append(events, []any{
+				evt.CaptureFrame, "hit",
+				victimID,
+				[]any{sourceID, evt.EventText},
+				evt.Distance,
+			})
+
+		case "server_fps":
+			// Server FPS stored as general event
+			if e.general != nil {
+				events = append(events, []any{
+					e.general.CaptureFrame, "server_fps", e.general.Message,
+				})
+			}
+
+		default:
+			// generalEvent, chat, and other event types
+			if e.general != nil {
+				events = append(events, []any{
+					e.general.CaptureFrame, e.eventType, e.general.Message,
+				})
+			} else if e.chat != nil {
+				events = append(events, []any{
+					e.chat.CaptureFrame, "chat", e.chat.Message,
+				})
+			}
+		}
+	}
+
+	return events
+}
+
+// markersToV1 converts markers to v1 format.
+// Format: [type, text, startFrame, endFrame, playerId, color, sideIndex, positions, size, shape, brush]
+func (s *Session) markersToV1() []any {
+	markers := make([]any, 0, len(s.markers))
+
+	for _, rec := range s.markers {
+		m := rec.Marker
+
+		posArray := make([][]any, 0, 1+len(rec.States))
+
+		if m.Shape == "POLYLINE" && len(m.Polyline) > 0 {
+			coords := make([][]float64, len(m.Polyline))
+			for i, pt := range m.Polyline {
+				coords[i] = []float64{pt.X, pt.Y}
+			}
+			posArray = append(posArray, []any{
+				m.CaptureFrame, coords, m.Direction, m.Alpha,
+			})
+		} else {
+			posArray = append(posArray, []any{
+				m.CaptureFrame,
+				[]float64{m.Position.X, m.Position.Y, m.Position.Z},
+				m.Direction, m.Alpha,
+			})
+
+			for _, st := range rec.States {
+				posArray = append(posArray, []any{
+					st.CaptureFrame,
+					[]float64{st.Position.X, st.Position.Y, st.Position.Z},
+					st.Direction, st.Alpha,
+				})
+			}
+		}
+
+		// Strip "#" prefix from hex colors for URL compatibility
+		markerColor := strings.TrimPrefix(m.Color, "#")
+
+		endFrame := m.EndFrame
+		if endFrame == 0 {
+			endFrame = -1
+		}
+
+		markers = append(markers, []any{
+			m.MarkerType,
+			m.Text,
+			m.CaptureFrame,
+			endFrame,
+			m.OwnerID,
+			markerColor,
+			sideToIndex(m.Side),
+			posArray,
+			parseMarkerSize(m.Size),
+			m.Shape,
+			m.Brush,
+		})
+	}
+
+	return markers
+}
+
+// timesToV1 converts time states to v1 format.
+func (s *Session) timesToV1() []any {
+	times := make([]any, 0, len(s.times))
+	for _, ts := range s.times {
+		times = append(times, map[string]any{
+			"frameNum":       ts.CaptureFrame,
+			"systemTimeUTC":  ts.SystemTimeUTC,
+			"date":           ts.MissionDate,
+			"timeMultiplier": ts.TimeMultiplier,
+			"time":           ts.MissionTime,
+		})
+	}
+	return times
+}
+
+// sanitizeFilename replaces non-filesystem-safe characters with underscores.
+var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
+
+func sanitizeFilename(name string) string {
+	return unsafeChars.ReplaceAllString(strings.TrimSpace(name), "_")
+}
+
+// WriteJSONGz serializes the session to v1 JSON, gzip-compresses it,
+// and writes it to dataDir/{filename}.json.gz. Returns the sanitized filename (without extension).
+func (s *Session) WriteJSONGz(dataDir string) (string, error) {
+	missionName := "unknown"
+	if s.mission != nil && s.mission.MissionName != "" {
+		missionName = s.mission.MissionName
+	}
+
+	filename := sanitizeFilename(missionName) + "_" + time.Now().Format("20060102_150405")
+
+	data := s.ToV1JSON()
+
+	outPath := filepath.Join(dataDir, filename+".json.gz")
+	f, err := os.Create(outPath)
+	if err != nil {
+		return "", fmt.Errorf("create file: %w", err)
+	}
+	defer f.Close()
+
+	gw := gzip.NewWriter(f)
+	if err := json.NewEncoder(gw).Encode(data); err != nil {
+		gw.Close()
+		return "", fmt.Errorf("encode JSON: %w", err)
+	}
+	if err := gw.Close(); err != nil {
+		return "", fmt.Errorf("close gzip: %w", err)
+	}
+
+	return filename, nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func sideToIndex(side string) int {
+	switch strings.ToUpper(side) {
+	case "EAST", "OPFOR":
+		return 0
+	case "WEST", "BLUFOR":
+		return 1
+	case "GUER", "INDEPENDENT":
+		return 2
+	case "CIV", "CIVILIAN":
+		return 3
+	default:
+		return -1
+	}
+}
+
+func parseMarkerSize(sizeStr string) []float64 {
+	var size []float64
+	if err := json.Unmarshal([]byte(sizeStr), &size); err != nil || len(size) != 2 {
+		return []float64{1.0, 1.0}
+	}
+	return size
+}
