@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/OCAP2/extension/v5/pkg/core"
 	"github.com/OCAP2/extension/v5/pkg/streaming"
 	"github.com/OCAP2/web/internal/ingestion"
+	"github.com/OCAP2/web/internal/storage"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 )
@@ -81,6 +84,7 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 	defer close(done)
 
 	var session *ingestion.Session
+	var v2OutputDir string // set on start_mission when data dir is available
 	counts := make(map[string]int)
 
 	writeAck := func(msgType string) {
@@ -94,7 +98,7 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 		if session == nil {
 			return
 		}
-		if err := h.finalizeSession(session, tag); err != nil {
+		if err := h.finalizeSession(session, tag, v2OutputDir); err != nil {
 			slog.Error("stream: finalization failed", "error", err)
 		}
 	}
@@ -128,6 +132,22 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			}
 			session = ingestion.NewSession()
 			session.SetMission(payload.Mission, payload.World)
+
+			// Set up v2 protobuf output directory and chunk flusher.
+			if h.setting.Data != "" {
+				v2OutputDir = filepath.Join(h.setting.Data, ingestion.MakeFilename(payload.Mission.MissionName))
+				if err := os.MkdirAll(v2OutputDir, 0755); err != nil {
+					slog.Error("stream: failed to create v2 output dir", "error", err)
+				} else {
+					cf, err := ingestion.NewChunkFlusher(v2OutputDir, 300)
+					if err != nil {
+						slog.Error("stream: failed to create chunk flusher", "error", err)
+					} else {
+						session.SetChunkFlusher(cf)
+					}
+				}
+			}
+
 			slog.Info("stream: mission started",
 				"mission", payload.Mission.MissionName,
 				"world", payload.World.WorldName)
@@ -300,20 +320,14 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 	}
 }
 
-// finalizeSession writes the session to a JSON.gz file, stores an Operation,
-// and triggers conversion.
-func (h *Handler) finalizeSession(session *ingestion.Session, tag string) error {
+// finalizeSession writes v2 protobuf + v1 JSON, stores an Operation, and triggers conversion.
+func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2OutputDir string) error {
 	if h.setting.Data == "" {
 		return nil
 	}
 
 	if tag == "partial" && session.Mission() != nil && session.Mission().Tag != "" {
 		tag = session.Mission().Tag + ",partial"
-	}
-
-	filename, err := session.WriteJSONGz(h.setting.Data)
-	if err != nil {
-		return fmt.Errorf("write JSON.gz: %w", err)
 	}
 
 	worldName := ""
@@ -325,14 +339,45 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string) error 
 		missionName = session.Mission().MissionName
 	}
 
-	// Compute duration from frame count and capture delay
+	// Compute duration from frame count and capture delay.
 	captureDelay := float32(1.0)
 	if session.Mission() != nil && session.Mission().CaptureDelay > 0 {
 		captureDelay = session.Mission().CaptureDelay
 	}
 	duration := float64(session.FrameCount()) * float64(captureDelay)
 
+	// Write v2 protobuf (manifest + finalize chunks).
+	var chunkCount int
+	hasV2 := session.ChunkFlusher() != nil && v2OutputDir != ""
+	if hasV2 {
+		if err := session.Finalize(v2OutputDir); err != nil {
+			slog.Error("stream: v2 finalization failed, falling back to v1 only", "error", err)
+			hasV2 = false
+		} else {
+			chunkCount = int(session.ChunkFlusher().ChunkCount())
+		}
+	}
+
+	// Always write v1 JSON.gz as backup/fallback.
+	v1Filename, err := session.WriteJSONGz(h.setting.Data)
+	if err != nil {
+		return fmt.Errorf("write JSON.gz: %w", err)
+	}
+
 	if h.repoOperation != nil {
+		// Use v2 output directory name as filename if v2 succeeded, otherwise v1.
+		filename := v1Filename
+		storageFormat := "json"
+		schemaVersion := uint32(storage.SchemaVersionV1)
+		conversionStatus := ConversionStatusPending
+
+		if hasV2 {
+			filename = filepath.Base(v2OutputDir)
+			storageFormat = "protobuf"
+			schemaVersion = uint32(storage.SchemaVersionV2)
+			conversionStatus = ConversionStatusCompleted // v2 is already in final format
+		}
+
 		op := Operation{
 			WorldName:        worldName,
 			MissionName:      missionName,
@@ -340,7 +385,10 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string) error 
 			Filename:         filename,
 			Date:             time.Now().Format("2006-01-02"),
 			Tag:              tag,
-			ConversionStatus: ConversionStatusPending,
+			StorageFormat:    storageFormat,
+			ConversionStatus: conversionStatus,
+			SchemaVersion:    schemaVersion,
+			ChunkCount:       chunkCount,
 		}
 		ctx := context.TODO()
 		if err := h.repoOperation.Store(ctx, &op); err != nil {
@@ -349,20 +397,26 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string) error 
 
 		slog.Info("stream: finalized",
 			"filename", filename,
+			"format", storageFormat,
+			"schemaVersion", schemaVersion,
 			"frames", session.FrameCount(),
+			"chunks", chunkCount,
 			"duration", duration,
 			"tag", tag)
 
-		if h.conversionTrigger != nil {
-			h.conversionTrigger.TriggerConversion(op.ID, op.Filename)
-		} else {
-			if err := h.repoOperation.UpdateConversionStatus(ctx, op.ID, ConversionStatusCompleted); err != nil {
-				slog.Error("stream: failed to mark completed", "error", err)
+		// Only trigger conversion for v1 JSON (v2 is already complete).
+		if !hasV2 {
+			if h.conversionTrigger != nil {
+				h.conversionTrigger.TriggerConversion(op.ID, op.Filename)
+			} else {
+				if err := h.repoOperation.UpdateConversionStatus(ctx, op.ID, ConversionStatusCompleted); err != nil {
+					slog.Error("stream: failed to mark completed", "error", err)
+				}
 			}
 		}
 	} else {
 		slog.Info("stream: finalized (no db)",
-			"filename", filename,
+			"filename", v1Filename,
 			"frames", session.FrameCount(),
 			"tag", tag)
 	}

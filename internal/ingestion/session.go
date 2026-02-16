@@ -59,6 +59,9 @@ type Session struct {
 	times  []core.TimeState
 
 	frameCount uint // highest CaptureFrame seen + 1
+
+	// v2 chunk flusher (optional, nil for v1-only sessions).
+	chunkFlusher *ChunkFlusher
 }
 
 // NewSession creates an empty ingestion session.
@@ -86,6 +89,29 @@ func (s *Session) SetMission(mission *core.Mission, world *core.World) {
 	s.world = world
 }
 
+// SetChunkFlusher attaches a v2 chunk flusher to this session.
+// When set, state updates are also routed to the flusher for incremental writing.
+func (s *Session) SetChunkFlusher(cf *ChunkFlusher) {
+	s.chunkFlusher = cf
+}
+
+// ChunkFlusher returns the attached chunk flusher, or nil.
+func (s *Session) ChunkFlusher() *ChunkFlusher {
+	return s.chunkFlusher
+}
+
+// Finalize flushes remaining chunks and writes the v2 manifest.
+// outputDir is the directory where chunks/ and manifest files are written.
+func (s *Session) Finalize(outputDir string) error {
+	if s.chunkFlusher == nil {
+		return nil
+	}
+	if err := s.chunkFlusher.Flush(); err != nil {
+		return fmt.Errorf("flush final chunk: %w", err)
+	}
+	return WriteV2Manifest(s, outputDir, s.chunkFlusher.ChunkCount())
+}
+
 // HandleAddSoldier registers a new soldier entity.
 func (s *Session) HandleAddSoldier(sol core.Soldier) {
 	s.soldiers[sol.ID] = &soldierRecord{Soldier: sol}
@@ -100,6 +126,10 @@ func (s *Session) HandleSoldierState(state core.SoldierState) {
 	}
 	rec.States = append(rec.States, state)
 	s.trackFrame(state.CaptureFrame)
+
+	if s.chunkFlusher != nil {
+		s.chunkFlusher.AddSoldierState(uint32(state.CaptureFrame), SoldierStateToProto(state))
+	}
 }
 
 // HandleAddVehicle registers a new vehicle entity.
@@ -116,6 +146,10 @@ func (s *Session) HandleVehicleState(state core.VehicleState) {
 	}
 	rec.States = append(rec.States, state)
 	s.trackFrame(state.CaptureFrame)
+
+	if s.chunkFlusher != nil {
+		s.chunkFlusher.AddVehicleState(uint32(state.CaptureFrame), VehicleStateToProto(state))
+	}
 }
 
 // HandleAddMarker registers a new marker.
@@ -540,6 +574,15 @@ var unsafeChars = regexp.MustCompile(`[^a-zA-Z0-9._-]`)
 
 func sanitizeFilename(name string) string {
 	return unsafeChars.ReplaceAllString(strings.TrimSpace(name), "_")
+}
+
+// MakeFilename creates a sanitized timestamped filename from a mission name.
+func MakeFilename(missionName string) string {
+	name := "unknown"
+	if missionName != "" {
+		name = sanitizeFilename(missionName)
+	}
+	return name + "_" + time.Now().Format("20060102_150405")
 }
 
 // WriteJSONGz serializes the session to v1 JSON, gzip-compresses it,

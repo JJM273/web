@@ -2,6 +2,7 @@ import type { Operation, WorldConfig } from "../../data/types";
 import type { ApiClient } from "../../data/api-client";
 import { JsonDecoder } from "../../data/decoders/json-decoder";
 import { ProtobufDecoder } from "../../data/decoders/protobuf-decoder";
+import { ProtobufDecoderV2 } from "../../data/decoders/protobuf-decoder-v2";
 import type { DecoderStrategy } from "../../data/decoders/decoder.interface";
 import { ChunkManager } from "../../data/chunk-manager";
 import type { PlaybackEngine } from "../../playback/engine";
@@ -34,7 +35,8 @@ export async function loadOperation(
   let manifest;
 
   if (op.storageFormat === "protobuf") {
-    decoder = new ProtobufDecoder();
+    const version = op.schemaVersion ?? 1;
+    decoder = version >= 2 ? new ProtobufDecoderV2() : new ProtobufDecoder();
     const chunkMgr = new ChunkManager(decoder, api);
     manifest = await chunkMgr.loadManifest(filename);
     await chunkMgr.loadChunk(0);
