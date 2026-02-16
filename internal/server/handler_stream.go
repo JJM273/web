@@ -85,6 +85,7 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 
 	var session *ingestion.Session
 	var v2OutputDir string // set on start_mission when data dir is available
+	var streamingOpID int64 // DB row created at start_mission, updated at finalize
 	counts := make(map[string]int)
 
 	writeAck := func(msgType string) {
@@ -98,7 +99,7 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 		if session == nil {
 			return
 		}
-		if err := h.finalizeSession(session, tag, v2OutputDir); err != nil {
+		if err := h.finalizeSession(session, tag, v2OutputDir, streamingOpID); err != nil {
 			slog.Error("stream: finalization failed", "error", err)
 		}
 	}
@@ -151,6 +152,27 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			slog.Info("stream: mission started",
 				"mission", payload.Mission.MissionName,
 				"world", payload.World.WorldName)
+
+			// Insert a "streaming" operation so it appears in the operations list.
+			if h.repoOperation != nil {
+				filename := ingestion.MakeFilename(payload.Mission.MissionName)
+				op := Operation{
+					WorldName:        payload.World.WorldName,
+					MissionName:      payload.Mission.MissionName,
+					Filename:         filename,
+					Date:             time.Now().Format("2006-01-02"),
+					Tag:              payload.Mission.Tag,
+					StorageFormat:    "protobuf",
+					ConversionStatus: ConversionStatusStreaming,
+					SchemaVersion:    uint32(storage.SchemaVersionV2),
+				}
+				if err := h.repoOperation.Store(context.TODO(), &op); err != nil {
+					slog.Error("stream: failed to store streaming operation", "error", err)
+				} else {
+					streamingOpID = op.ID
+				}
+			}
+
 			writeAck(streaming.TypeStartMission)
 
 		case streaming.TypeEndMission:
@@ -321,7 +343,8 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 }
 
 // finalizeSession writes v2 protobuf + v1 JSON, stores an Operation, and triggers conversion.
-func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2OutputDir string) error {
+// If streamingOpID > 0, updates the existing "streaming" row instead of inserting a new one.
+func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2OutputDir string, streamingOpID int64) error {
 	if h.setting.Data == "" {
 		return nil
 	}
@@ -391,11 +414,21 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2Outp
 			ChunkCount:       chunkCount,
 		}
 		ctx := context.TODO()
-		if err := h.repoOperation.Store(ctx, &op); err != nil {
-			return fmt.Errorf("store operation: %w", err)
+
+		if streamingOpID > 0 {
+			// Update the existing "streaming" row created at start_mission.
+			op.ID = streamingOpID
+			if err := h.repoOperation.Update(ctx, &op); err != nil {
+				return fmt.Errorf("update operation: %w", err)
+			}
+		} else {
+			if err := h.repoOperation.Store(ctx, &op); err != nil {
+				return fmt.Errorf("store operation: %w", err)
+			}
 		}
 
 		slog.Info("stream: finalized",
+			"id", op.ID,
 			"filename", filename,
 			"format", storageFormat,
 			"schemaVersion", schemaVersion,
