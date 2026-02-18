@@ -3,6 +3,7 @@ module github.com/OCAP2/web
 go 1.26.0
 
 require (
+	github.com/OCAP2/extension/v5 v5.0.0-alpha.1.0.20260216221044-4932fc4f0a04
 	github.com/gorilla/websocket v1.5.3
 	github.com/labstack/echo/v4 v4.15.0
 	github.com/mattn/go-sqlite3 v1.14.34
@@ -14,7 +15,6 @@ require (
 )
 
 require (
-	github.com/OCAP2/extension/v5 v5.0.0-alpha.1.0.20260216174735-90bd2e175c92 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect

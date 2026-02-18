@@ -178,7 +178,7 @@ export interface Manifest {
   extensionVersion?: string;
   addonVersion?: string;
   // v2 extensions
-  serverFps?: Array<{ frameNum: number; fpsAverage: number; fpsMin: number }>;
+  telemetry?: TelemetrySample[];
   world?: {
     worldSize?: number;
     latitude?: number;
@@ -194,6 +194,29 @@ export interface Manifest {
     sideFriendly?: { eastWest: boolean; eastIndependent: boolean; westIndependent: boolean };
     addons?: Array<{ name: string; workshopId: string }>;
   };
+}
+
+/** Telemetry sample: FPS + optional entity counts, weather, and player network data. */
+export interface TelemetrySample {
+  frameNum: number;
+  fpsAverage: number;
+  fpsMin: number;
+  globalCounts?: {
+    unitsAlive: number;
+    unitsDead: number;
+    groups: number;
+    vehicles: number;
+    weaponHolders: number;
+    playersAlive: number;
+    playersDead: number;
+    playersConnected: number;
+  };
+  weather?: {
+    fog: number;
+    overcast: number;
+    rain: number;
+  };
+  playerCount?: number;
 }
 
 /** A decoded chunk: entity ID -> array of states for this chunk's frames. */

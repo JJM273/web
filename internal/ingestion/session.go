@@ -60,7 +60,7 @@ type Session struct {
 
 	events      []eventRecord
 	projectiles []core.ProjectileEvent // raw 1:1 storage, derived at write time
-	serverFps   []core.ServerFpsEvent
+	telemetry   []core.TelemetryEvent
 	times       []core.TimeState
 
 	frameCount uint // highest CaptureFrame seen + 1
@@ -243,9 +243,9 @@ func (s *Session) HandleChatEvent(evt core.ChatEvent) {
 	s.trackFrame(evt.CaptureFrame)
 }
 
-// HandleServerFps stores a server FPS sample as performance telemetry (not a gameplay event).
-func (s *Session) HandleServerFps(evt core.ServerFpsEvent) {
-	s.serverFps = append(s.serverFps, evt)
+// HandleTelemetry stores a telemetry snapshot (FPS, entity counts, scripts, weather, player network).
+func (s *Session) HandleTelemetry(evt core.TelemetryEvent) {
+	s.telemetry = append(s.telemetry, evt)
 	s.trackFrame(evt.CaptureFrame)
 }
 

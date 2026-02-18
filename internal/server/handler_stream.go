@@ -317,16 +317,16 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			}
 			session.HandleChatEvent(evt)
 
-		case streaming.TypeServerFps:
+		case streaming.TypeTelemetry:
 			if session == nil {
 				continue
 			}
-			var evt core.ServerFpsEvent
+			var evt core.TelemetryEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
-				slog.Warn("stream: invalid server_fps", "error", err)
+				slog.Warn("stream: invalid telemetry", "error", err)
 				continue
 			}
-			session.HandleServerFps(evt)
+			session.HandleTelemetry(evt)
 
 		case streaming.TypeProjectileEvent:
 			if session == nil {

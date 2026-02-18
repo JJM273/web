@@ -10,6 +10,7 @@ import type {
   MarkerDef as AppMarkerDef,
   Side,
   SoldierScores,
+  TelemetrySample,
 } from "../types";
 import type { DecoderStrategy } from "./decoder.interface";
 import {
@@ -200,9 +201,9 @@ function convertEvent(pb: PbEvent): EventDef | null {
       message: pb.endMission.message,
     };
   }
-  if (pb.serverFps) {
-    // Server FPS is performance telemetry, not a gameplay event.
-    // Extracted separately into manifest.serverFps for metrics display.
+  if (pb.telemetry) {
+    // Telemetry is performance/metrics data, not a gameplay event.
+    // Extracted separately into manifest.telemetry for metrics display.
     return null;
   }
   if (pb.general) {
@@ -294,16 +295,36 @@ export class ProtobufDecoderV2 implements DecoderStrategy {
       addonVersion: pb.mission?.addonVersion || undefined,
     };
 
-    // Extract server FPS telemetry (separate from gameplay events).
-    const fpsSamples = pb.events
-      .filter((e) => e.serverFps)
-      .map((e) => ({
-        frameNum: e.frameNum,
-        fpsAverage: e.serverFps!.fpsAverage,
-        fpsMin: e.serverFps!.fpsMin,
-      }));
-    if (fpsSamples.length > 0) {
-      manifest.serverFps = fpsSamples;
+    // Extract telemetry data (separate from gameplay events).
+    const telemetrySamples: TelemetrySample[] = [];
+    for (const e of pb.events) {
+      if (e.telemetry) {
+        const t = e.telemetry;
+        telemetrySamples.push({
+          frameNum: e.frameNum,
+          fpsAverage: t.fpsAverage,
+          fpsMin: t.fpsMin,
+          globalCounts: t.globalCounts ? {
+            unitsAlive: t.globalCounts.unitsAlive,
+            unitsDead: t.globalCounts.unitsDead,
+            groups: t.globalCounts.groups,
+            vehicles: t.globalCounts.vehicles,
+            weaponHolders: t.globalCounts.weaponHolders,
+            playersAlive: t.globalCounts.playersAlive,
+            playersDead: t.globalCounts.playersDead,
+            playersConnected: t.globalCounts.playersConnected,
+          } : undefined,
+          weather: t.weather ? {
+            fog: t.weather.fog,
+            overcast: t.weather.overcast,
+            rain: t.weather.rain,
+          } : undefined,
+          playerCount: t.players.length,
+        });
+      }
+    }
+    if (telemetrySamples.length > 0) {
+      manifest.telemetry = telemetrySamples;
     }
 
     // v2 world metadata.

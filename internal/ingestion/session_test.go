@@ -180,17 +180,27 @@ func TestSession_FrameCount(t *testing.T) {
 	assert.Equal(t, uint(6), s.frameCount) // max(2,5) + 1 = 6
 }
 
-func TestSession_ServerFps(t *testing.T) {
+func TestSession_Telemetry(t *testing.T) {
 	s := NewSession()
 
-	s.HandleServerFps(core.ServerFpsEvent{
-		CaptureFrame: 10, FpsAverage: 45.2, FpsMin: 30.1,
+	s.HandleTelemetry(core.TelemetryEvent{
+		CaptureFrame: 10,
+		FpsAverage:   45.2,
+		FpsMin:       30.1,
+		GlobalCounts: core.GlobalEntityCount{UnitsAlive: 20, PlayersConnected: 8},
+		Players: []core.PlayerNetworkData{
+			{UID: "123", Name: "Player1", Ping: 42, BW: 1024, Desync: 0.5},
+		},
 	})
 
-	assert.Len(t, s.events, 0, "server FPS should not be stored as gameplay events")
-	assert.Len(t, s.serverFps, 1)
-	assert.InDelta(t, 45.2, s.serverFps[0].FpsAverage, 0.01)
-	assert.InDelta(t, 30.1, s.serverFps[0].FpsMin, 0.01)
+	assert.Len(t, s.events, 0, "telemetry should not be stored as gameplay events")
+	assert.Len(t, s.telemetry, 1)
+	assert.InDelta(t, 45.2, s.telemetry[0].FpsAverage, 0.01)
+	assert.InDelta(t, 30.1, s.telemetry[0].FpsMin, 0.01)
+	assert.Equal(t, uint(20), s.telemetry[0].GlobalCounts.UnitsAlive)
+	assert.Equal(t, uint(8), s.telemetry[0].GlobalCounts.PlayersConnected)
+	assert.Len(t, s.telemetry[0].Players, 1)
+	assert.Equal(t, "Player1", s.telemetry[0].Players[0].Name)
 	assert.Equal(t, uint(11), s.frameCount) // frame 10 + 1
 }
 

@@ -121,15 +121,9 @@ func buildManifest(session *Session, chunkCount uint32) *pbv2.Manifest {
 		manifest.Events = append(manifest.Events, projectileToProtoEvent(pe))
 	}
 
-	// Server FPS (performance telemetry, stored as typed events separate from gameplay events).
-	for _, fps := range session.serverFps {
-		manifest.Events = append(manifest.Events, &pbv2.Event{
-			FrameNum: uint32(fps.CaptureFrame),
-			Event: &pbv2.Event_ServerFps{ServerFps: &pbv2.ServerFpsEvent{
-				FpsAverage: fps.FpsAverage,
-				FpsMin:     fps.FpsMin,
-			}},
-		})
+	// Telemetry (performance + entity counts + weather + player network).
+	for _, te := range session.telemetry {
+		manifest.Events = append(manifest.Events, telemetryToProtoEvent(te))
 	}
 
 	// Markers.
@@ -522,6 +516,85 @@ func manifestToJSON(m *pbv2.Manifest) map[string]any {
 	result["timeCount"] = len(m.Times)
 
 	return result
+}
+
+// telemetryToProtoEvent converts a core.TelemetryEvent to a v2 proto Event.
+func telemetryToProtoEvent(te core.TelemetryEvent) *pbv2.Event {
+	t := &pbv2.TelemetryEvent{
+		FpsAverage: te.FpsAverage,
+		FpsMin:     te.FpsMin,
+		SideEntityCounts: &pbv2.SideEntityCounts{
+			East:        sideEntityCountToProto(te.SideEntityCounts.East),
+			West:        sideEntityCountToProto(te.SideEntityCounts.West),
+			Independent: sideEntityCountToProto(te.SideEntityCounts.Independent),
+			Civilian:    sideEntityCountToProto(te.SideEntityCounts.Civilian),
+		},
+		GlobalCounts: &pbv2.GlobalEntityCount{
+			UnitsAlive:       uint32(te.GlobalCounts.UnitsAlive),
+			UnitsDead:        uint32(te.GlobalCounts.UnitsDead),
+			Groups:           uint32(te.GlobalCounts.Groups),
+			Vehicles:         uint32(te.GlobalCounts.Vehicles),
+			WeaponHolders:    uint32(te.GlobalCounts.WeaponHolders),
+			PlayersAlive:     uint32(te.GlobalCounts.PlayersAlive),
+			PlayersDead:      uint32(te.GlobalCounts.PlayersDead),
+			PlayersConnected: uint32(te.GlobalCounts.PlayersConnected),
+		},
+		Scripts: &pbv2.ScriptCounts{
+			Spawn:   uint32(te.Scripts.Spawn),
+			ExecVm:  uint32(te.Scripts.ExecVM),
+			Exec:    uint32(te.Scripts.Exec),
+			ExecFsm: uint32(te.Scripts.ExecFSM),
+			Pfh:     uint32(te.Scripts.PFH),
+		},
+		Weather: &pbv2.WeatherData{
+			Fog:           te.Weather.Fog,
+			Overcast:      te.Weather.Overcast,
+			Rain:          te.Weather.Rain,
+			Humidity:      te.Weather.Humidity,
+			Waves:         te.Weather.Waves,
+			WindDir:       te.Weather.WindDir,
+			WindStr:       te.Weather.WindStr,
+			Gusts:         te.Weather.Gusts,
+			Lightnings:    te.Weather.Lightnings,
+			MoonIntensity: te.Weather.MoonIntensity,
+			MoonPhase:     te.Weather.MoonPhase,
+			SunOrMoon:     te.Weather.SunOrMoon,
+		},
+	}
+	for _, p := range te.Players {
+		t.Players = append(t.Players, &pbv2.PlayerNetworkData{
+			Uid:    p.UID,
+			Name:   p.Name,
+			Ping:   p.Ping,
+			Bw:     p.BW,
+			Desync: p.Desync,
+		})
+	}
+	return &pbv2.Event{
+		FrameNum: uint32(te.CaptureFrame),
+		Event:    &pbv2.Event_Telemetry{Telemetry: t},
+	}
+}
+
+func sideEntityCountToProto(sec core.SideEntityCount) *pbv2.SideEntityCount {
+	return &pbv2.SideEntityCount{
+		Local: &pbv2.EntityLocality{
+			UnitsTotal:    uint32(sec.Local.UnitsTotal),
+			UnitsAlive:    uint32(sec.Local.UnitsAlive),
+			UnitsDead:     uint32(sec.Local.UnitsDead),
+			Groups:        uint32(sec.Local.Groups),
+			Vehicles:      uint32(sec.Local.Vehicles),
+			WeaponHolders: uint32(sec.Local.WeaponHolders),
+		},
+		Remote: &pbv2.EntityLocality{
+			UnitsTotal:    uint32(sec.Remote.UnitsTotal),
+			UnitsAlive:    uint32(sec.Remote.UnitsAlive),
+			UnitsDead:     uint32(sec.Remote.UnitsDead),
+			Groups:        uint32(sec.Remote.Groups),
+			Vehicles:      uint32(sec.Remote.Vehicles),
+			WeaponHolders: uint32(sec.Remote.WeaponHolders),
+		},
+	}
 }
 
 // projectileToProtoEvent converts a raw core.ProjectileEvent to a v2 proto Event.

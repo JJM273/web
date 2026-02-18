@@ -971,10 +971,10 @@ type Event struct {
 	//	*Event_Radio
 	//	*Event_Ace3Death
 	//	*Event_Ace3Unconscious
-	//	*Event_ServerFps
 	//	*Event_General
 	//	*Event_Connect
 	//	*Event_EndMission
+	//	*Event_Telemetry
 	Event         isEvent_Event `protobuf_oneof:"event"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1087,15 +1087,6 @@ func (x *Event) GetAce3Unconscious() *Ace3UnconsciousEvent {
 	return nil
 }
 
-func (x *Event) GetServerFps() *ServerFpsEvent {
-	if x != nil {
-		if x, ok := x.Event.(*Event_ServerFps); ok {
-			return x.ServerFps
-		}
-	}
-	return nil
-}
-
 func (x *Event) GetGeneral() *GeneralEvent {
 	if x != nil {
 		if x, ok := x.Event.(*Event_General); ok {
@@ -1118,6 +1109,15 @@ func (x *Event) GetEndMission() *EndMissionEvent {
 	if x != nil {
 		if x, ok := x.Event.(*Event_EndMission); ok {
 			return x.EndMission
+		}
+	}
+	return nil
+}
+
+func (x *Event) GetTelemetry() *TelemetryEvent {
+	if x != nil {
+		if x, ok := x.Event.(*Event_Telemetry); ok {
+			return x.Telemetry
 		}
 	}
 	return nil
@@ -1155,20 +1155,20 @@ type Event_Ace3Unconscious struct {
 	Ace3Unconscious *Ace3UnconsciousEvent `protobuf:"bytes,16,opt,name=ace3_unconscious,json=ace3Unconscious,proto3,oneof"`
 }
 
-type Event_ServerFps struct {
-	ServerFps *ServerFpsEvent `protobuf:"bytes,17,opt,name=server_fps,json=serverFps,proto3,oneof"`
-}
-
 type Event_General struct {
-	General *GeneralEvent `protobuf:"bytes,18,opt,name=general,proto3,oneof"`
+	General *GeneralEvent `protobuf:"bytes,17,opt,name=general,proto3,oneof"`
 }
 
 type Event_Connect struct {
-	Connect *ConnectEvent `protobuf:"bytes,19,opt,name=connect,proto3,oneof"`
+	Connect *ConnectEvent `protobuf:"bytes,18,opt,name=connect,proto3,oneof"`
 }
 
 type Event_EndMission struct {
-	EndMission *EndMissionEvent `protobuf:"bytes,20,opt,name=end_mission,json=endMission,proto3,oneof"`
+	EndMission *EndMissionEvent `protobuf:"bytes,19,opt,name=end_mission,json=endMission,proto3,oneof"`
+}
+
+type Event_Telemetry struct {
+	Telemetry *TelemetryEvent `protobuf:"bytes,20,opt,name=telemetry,proto3,oneof"`
 }
 
 func (*Event_Kill) isEvent_Event() {}
@@ -1185,13 +1185,13 @@ func (*Event_Ace3Death) isEvent_Event() {}
 
 func (*Event_Ace3Unconscious) isEvent_Event() {}
 
-func (*Event_ServerFps) isEvent_Event() {}
-
 func (*Event_General) isEvent_Event() {}
 
 func (*Event_Connect) isEvent_Event() {}
 
 func (*Event_EndMission) isEvent_Event() {}
+
+func (*Event_Telemetry) isEvent_Event() {}
 
 type KillEvent struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -1965,28 +1965,33 @@ func (x *Ace3UnconsciousEvent) GetIsUnconscious() bool {
 	return false
 }
 
-type ServerFpsEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	FpsAverage    float32                `protobuf:"fixed32,1,opt,name=fps_average,json=fpsAverage,proto3" json:"fps_average,omitempty"`
-	FpsMin        float32                `protobuf:"fixed32,2,opt,name=fps_min,json=fpsMin,proto3" json:"fps_min,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+type TelemetryEvent struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	FpsAverage       float32                `protobuf:"fixed32,1,opt,name=fps_average,json=fpsAverage,proto3" json:"fps_average,omitempty"`
+	FpsMin           float32                `protobuf:"fixed32,2,opt,name=fps_min,json=fpsMin,proto3" json:"fps_min,omitempty"`
+	SideEntityCounts *SideEntityCounts      `protobuf:"bytes,3,opt,name=side_entity_counts,json=sideEntityCounts,proto3" json:"side_entity_counts,omitempty"`
+	GlobalCounts     *GlobalEntityCount     `protobuf:"bytes,4,opt,name=global_counts,json=globalCounts,proto3" json:"global_counts,omitempty"`
+	Scripts          *ScriptCounts          `protobuf:"bytes,5,opt,name=scripts,proto3" json:"scripts,omitempty"`
+	Weather          *WeatherData           `protobuf:"bytes,6,opt,name=weather,proto3" json:"weather,omitempty"`
+	Players          []*PlayerNetworkData   `protobuf:"bytes,7,rep,name=players,proto3" json:"players,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
-func (x *ServerFpsEvent) Reset() {
-	*x = ServerFpsEvent{}
+func (x *TelemetryEvent) Reset() {
+	*x = TelemetryEvent{}
 	mi := &file_ocap_v2_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *ServerFpsEvent) String() string {
+func (x *TelemetryEvent) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*ServerFpsEvent) ProtoMessage() {}
+func (*TelemetryEvent) ProtoMessage() {}
 
-func (x *ServerFpsEvent) ProtoReflect() protoreflect.Message {
+func (x *TelemetryEvent) ProtoReflect() protoreflect.Message {
 	mi := &file_ocap_v2_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -1998,21 +2003,644 @@ func (x *ServerFpsEvent) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use ServerFpsEvent.ProtoReflect.Descriptor instead.
-func (*ServerFpsEvent) Descriptor() ([]byte, []int) {
+// Deprecated: Use TelemetryEvent.ProtoReflect.Descriptor instead.
+func (*TelemetryEvent) Descriptor() ([]byte, []int) {
 	return file_ocap_v2_proto_rawDescGZIP(), []int{20}
 }
 
-func (x *ServerFpsEvent) GetFpsAverage() float32 {
+func (x *TelemetryEvent) GetFpsAverage() float32 {
 	if x != nil {
 		return x.FpsAverage
 	}
 	return 0
 }
 
-func (x *ServerFpsEvent) GetFpsMin() float32 {
+func (x *TelemetryEvent) GetFpsMin() float32 {
 	if x != nil {
 		return x.FpsMin
+	}
+	return 0
+}
+
+func (x *TelemetryEvent) GetSideEntityCounts() *SideEntityCounts {
+	if x != nil {
+		return x.SideEntityCounts
+	}
+	return nil
+}
+
+func (x *TelemetryEvent) GetGlobalCounts() *GlobalEntityCount {
+	if x != nil {
+		return x.GlobalCounts
+	}
+	return nil
+}
+
+func (x *TelemetryEvent) GetScripts() *ScriptCounts {
+	if x != nil {
+		return x.Scripts
+	}
+	return nil
+}
+
+func (x *TelemetryEvent) GetWeather() *WeatherData {
+	if x != nil {
+		return x.Weather
+	}
+	return nil
+}
+
+func (x *TelemetryEvent) GetPlayers() []*PlayerNetworkData {
+	if x != nil {
+		return x.Players
+	}
+	return nil
+}
+
+type SideEntityCounts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	East          *SideEntityCount       `protobuf:"bytes,1,opt,name=east,proto3" json:"east,omitempty"`
+	West          *SideEntityCount       `protobuf:"bytes,2,opt,name=west,proto3" json:"west,omitempty"`
+	Independent   *SideEntityCount       `protobuf:"bytes,3,opt,name=independent,proto3" json:"independent,omitempty"`
+	Civilian      *SideEntityCount       `protobuf:"bytes,4,opt,name=civilian,proto3" json:"civilian,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SideEntityCounts) Reset() {
+	*x = SideEntityCounts{}
+	mi := &file_ocap_v2_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SideEntityCounts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SideEntityCounts) ProtoMessage() {}
+
+func (x *SideEntityCounts) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SideEntityCounts.ProtoReflect.Descriptor instead.
+func (*SideEntityCounts) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SideEntityCounts) GetEast() *SideEntityCount {
+	if x != nil {
+		return x.East
+	}
+	return nil
+}
+
+func (x *SideEntityCounts) GetWest() *SideEntityCount {
+	if x != nil {
+		return x.West
+	}
+	return nil
+}
+
+func (x *SideEntityCounts) GetIndependent() *SideEntityCount {
+	if x != nil {
+		return x.Independent
+	}
+	return nil
+}
+
+func (x *SideEntityCounts) GetCivilian() *SideEntityCount {
+	if x != nil {
+		return x.Civilian
+	}
+	return nil
+}
+
+type SideEntityCount struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Local         *EntityLocality        `protobuf:"bytes,1,opt,name=local,proto3" json:"local,omitempty"`
+	Remote        *EntityLocality        `protobuf:"bytes,2,opt,name=remote,proto3" json:"remote,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SideEntityCount) Reset() {
+	*x = SideEntityCount{}
+	mi := &file_ocap_v2_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SideEntityCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SideEntityCount) ProtoMessage() {}
+
+func (x *SideEntityCount) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SideEntityCount.ProtoReflect.Descriptor instead.
+func (*SideEntityCount) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{22}
+}
+
+func (x *SideEntityCount) GetLocal() *EntityLocality {
+	if x != nil {
+		return x.Local
+	}
+	return nil
+}
+
+func (x *SideEntityCount) GetRemote() *EntityLocality {
+	if x != nil {
+		return x.Remote
+	}
+	return nil
+}
+
+type EntityLocality struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	UnitsTotal    uint32                 `protobuf:"varint,1,opt,name=units_total,json=unitsTotal,proto3" json:"units_total,omitempty"`
+	UnitsAlive    uint32                 `protobuf:"varint,2,opt,name=units_alive,json=unitsAlive,proto3" json:"units_alive,omitempty"`
+	UnitsDead     uint32                 `protobuf:"varint,3,opt,name=units_dead,json=unitsDead,proto3" json:"units_dead,omitempty"`
+	Groups        uint32                 `protobuf:"varint,4,opt,name=groups,proto3" json:"groups,omitempty"`
+	Vehicles      uint32                 `protobuf:"varint,5,opt,name=vehicles,proto3" json:"vehicles,omitempty"`
+	WeaponHolders uint32                 `protobuf:"varint,6,opt,name=weapon_holders,json=weaponHolders,proto3" json:"weapon_holders,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EntityLocality) Reset() {
+	*x = EntityLocality{}
+	mi := &file_ocap_v2_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EntityLocality) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EntityLocality) ProtoMessage() {}
+
+func (x *EntityLocality) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EntityLocality.ProtoReflect.Descriptor instead.
+func (*EntityLocality) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *EntityLocality) GetUnitsTotal() uint32 {
+	if x != nil {
+		return x.UnitsTotal
+	}
+	return 0
+}
+
+func (x *EntityLocality) GetUnitsAlive() uint32 {
+	if x != nil {
+		return x.UnitsAlive
+	}
+	return 0
+}
+
+func (x *EntityLocality) GetUnitsDead() uint32 {
+	if x != nil {
+		return x.UnitsDead
+	}
+	return 0
+}
+
+func (x *EntityLocality) GetGroups() uint32 {
+	if x != nil {
+		return x.Groups
+	}
+	return 0
+}
+
+func (x *EntityLocality) GetVehicles() uint32 {
+	if x != nil {
+		return x.Vehicles
+	}
+	return 0
+}
+
+func (x *EntityLocality) GetWeaponHolders() uint32 {
+	if x != nil {
+		return x.WeaponHolders
+	}
+	return 0
+}
+
+type GlobalEntityCount struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	UnitsAlive       uint32                 `protobuf:"varint,1,opt,name=units_alive,json=unitsAlive,proto3" json:"units_alive,omitempty"`
+	UnitsDead        uint32                 `protobuf:"varint,2,opt,name=units_dead,json=unitsDead,proto3" json:"units_dead,omitempty"`
+	Groups           uint32                 `protobuf:"varint,3,opt,name=groups,proto3" json:"groups,omitempty"`
+	Vehicles         uint32                 `protobuf:"varint,4,opt,name=vehicles,proto3" json:"vehicles,omitempty"`
+	WeaponHolders    uint32                 `protobuf:"varint,5,opt,name=weapon_holders,json=weaponHolders,proto3" json:"weapon_holders,omitempty"`
+	PlayersAlive     uint32                 `protobuf:"varint,6,opt,name=players_alive,json=playersAlive,proto3" json:"players_alive,omitempty"`
+	PlayersDead      uint32                 `protobuf:"varint,7,opt,name=players_dead,json=playersDead,proto3" json:"players_dead,omitempty"`
+	PlayersConnected uint32                 `protobuf:"varint,8,opt,name=players_connected,json=playersConnected,proto3" json:"players_connected,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *GlobalEntityCount) Reset() {
+	*x = GlobalEntityCount{}
+	mi := &file_ocap_v2_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GlobalEntityCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GlobalEntityCount) ProtoMessage() {}
+
+func (x *GlobalEntityCount) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GlobalEntityCount.ProtoReflect.Descriptor instead.
+func (*GlobalEntityCount) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{24}
+}
+
+func (x *GlobalEntityCount) GetUnitsAlive() uint32 {
+	if x != nil {
+		return x.UnitsAlive
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetUnitsDead() uint32 {
+	if x != nil {
+		return x.UnitsDead
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetGroups() uint32 {
+	if x != nil {
+		return x.Groups
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetVehicles() uint32 {
+	if x != nil {
+		return x.Vehicles
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetWeaponHolders() uint32 {
+	if x != nil {
+		return x.WeaponHolders
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetPlayersAlive() uint32 {
+	if x != nil {
+		return x.PlayersAlive
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetPlayersDead() uint32 {
+	if x != nil {
+		return x.PlayersDead
+	}
+	return 0
+}
+
+func (x *GlobalEntityCount) GetPlayersConnected() uint32 {
+	if x != nil {
+		return x.PlayersConnected
+	}
+	return 0
+}
+
+type ScriptCounts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Spawn         uint32                 `protobuf:"varint,1,opt,name=spawn,proto3" json:"spawn,omitempty"`
+	ExecVm        uint32                 `protobuf:"varint,2,opt,name=exec_vm,json=execVm,proto3" json:"exec_vm,omitempty"`
+	Exec          uint32                 `protobuf:"varint,3,opt,name=exec,proto3" json:"exec,omitempty"`
+	ExecFsm       uint32                 `protobuf:"varint,4,opt,name=exec_fsm,json=execFsm,proto3" json:"exec_fsm,omitempty"`
+	Pfh           uint32                 `protobuf:"varint,5,opt,name=pfh,proto3" json:"pfh,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScriptCounts) Reset() {
+	*x = ScriptCounts{}
+	mi := &file_ocap_v2_proto_msgTypes[25]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScriptCounts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScriptCounts) ProtoMessage() {}
+
+func (x *ScriptCounts) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[25]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ScriptCounts.ProtoReflect.Descriptor instead.
+func (*ScriptCounts) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{25}
+}
+
+func (x *ScriptCounts) GetSpawn() uint32 {
+	if x != nil {
+		return x.Spawn
+	}
+	return 0
+}
+
+func (x *ScriptCounts) GetExecVm() uint32 {
+	if x != nil {
+		return x.ExecVm
+	}
+	return 0
+}
+
+func (x *ScriptCounts) GetExec() uint32 {
+	if x != nil {
+		return x.Exec
+	}
+	return 0
+}
+
+func (x *ScriptCounts) GetExecFsm() uint32 {
+	if x != nil {
+		return x.ExecFsm
+	}
+	return 0
+}
+
+func (x *ScriptCounts) GetPfh() uint32 {
+	if x != nil {
+		return x.Pfh
+	}
+	return 0
+}
+
+type WeatherData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Fog           float32                `protobuf:"fixed32,1,opt,name=fog,proto3" json:"fog,omitempty"`
+	Overcast      float32                `protobuf:"fixed32,2,opt,name=overcast,proto3" json:"overcast,omitempty"`
+	Rain          float32                `protobuf:"fixed32,3,opt,name=rain,proto3" json:"rain,omitempty"`
+	Humidity      float32                `protobuf:"fixed32,4,opt,name=humidity,proto3" json:"humidity,omitempty"`
+	Waves         float32                `protobuf:"fixed32,5,opt,name=waves,proto3" json:"waves,omitempty"`
+	WindDir       float32                `protobuf:"fixed32,6,opt,name=wind_dir,json=windDir,proto3" json:"wind_dir,omitempty"`
+	WindStr       float32                `protobuf:"fixed32,7,opt,name=wind_str,json=windStr,proto3" json:"wind_str,omitempty"`
+	Gusts         float32                `protobuf:"fixed32,8,opt,name=gusts,proto3" json:"gusts,omitempty"`
+	Lightnings    float32                `protobuf:"fixed32,9,opt,name=lightnings,proto3" json:"lightnings,omitempty"`
+	MoonIntensity float32                `protobuf:"fixed32,10,opt,name=moon_intensity,json=moonIntensity,proto3" json:"moon_intensity,omitempty"`
+	MoonPhase     float32                `protobuf:"fixed32,11,opt,name=moon_phase,json=moonPhase,proto3" json:"moon_phase,omitempty"`
+	SunOrMoon     float32                `protobuf:"fixed32,12,opt,name=sun_or_moon,json=sunOrMoon,proto3" json:"sun_or_moon,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *WeatherData) Reset() {
+	*x = WeatherData{}
+	mi := &file_ocap_v2_proto_msgTypes[26]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *WeatherData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*WeatherData) ProtoMessage() {}
+
+func (x *WeatherData) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[26]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use WeatherData.ProtoReflect.Descriptor instead.
+func (*WeatherData) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{26}
+}
+
+func (x *WeatherData) GetFog() float32 {
+	if x != nil {
+		return x.Fog
+	}
+	return 0
+}
+
+func (x *WeatherData) GetOvercast() float32 {
+	if x != nil {
+		return x.Overcast
+	}
+	return 0
+}
+
+func (x *WeatherData) GetRain() float32 {
+	if x != nil {
+		return x.Rain
+	}
+	return 0
+}
+
+func (x *WeatherData) GetHumidity() float32 {
+	if x != nil {
+		return x.Humidity
+	}
+	return 0
+}
+
+func (x *WeatherData) GetWaves() float32 {
+	if x != nil {
+		return x.Waves
+	}
+	return 0
+}
+
+func (x *WeatherData) GetWindDir() float32 {
+	if x != nil {
+		return x.WindDir
+	}
+	return 0
+}
+
+func (x *WeatherData) GetWindStr() float32 {
+	if x != nil {
+		return x.WindStr
+	}
+	return 0
+}
+
+func (x *WeatherData) GetGusts() float32 {
+	if x != nil {
+		return x.Gusts
+	}
+	return 0
+}
+
+func (x *WeatherData) GetLightnings() float32 {
+	if x != nil {
+		return x.Lightnings
+	}
+	return 0
+}
+
+func (x *WeatherData) GetMoonIntensity() float32 {
+	if x != nil {
+		return x.MoonIntensity
+	}
+	return 0
+}
+
+func (x *WeatherData) GetMoonPhase() float32 {
+	if x != nil {
+		return x.MoonPhase
+	}
+	return 0
+}
+
+func (x *WeatherData) GetSunOrMoon() float32 {
+	if x != nil {
+		return x.SunOrMoon
+	}
+	return 0
+}
+
+type PlayerNetworkData struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Uid           string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
+	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Ping          float32                `protobuf:"fixed32,3,opt,name=ping,proto3" json:"ping,omitempty"`
+	Bw            float32                `protobuf:"fixed32,4,opt,name=bw,proto3" json:"bw,omitempty"`
+	Desync        float32                `protobuf:"fixed32,5,opt,name=desync,proto3" json:"desync,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PlayerNetworkData) Reset() {
+	*x = PlayerNetworkData{}
+	mi := &file_ocap_v2_proto_msgTypes[27]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PlayerNetworkData) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PlayerNetworkData) ProtoMessage() {}
+
+func (x *PlayerNetworkData) ProtoReflect() protoreflect.Message {
+	mi := &file_ocap_v2_proto_msgTypes[27]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PlayerNetworkData.ProtoReflect.Descriptor instead.
+func (*PlayerNetworkData) Descriptor() ([]byte, []int) {
+	return file_ocap_v2_proto_rawDescGZIP(), []int{27}
+}
+
+func (x *PlayerNetworkData) GetUid() string {
+	if x != nil {
+		return x.Uid
+	}
+	return ""
+}
+
+func (x *PlayerNetworkData) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *PlayerNetworkData) GetPing() float32 {
+	if x != nil {
+		return x.Ping
+	}
+	return 0
+}
+
+func (x *PlayerNetworkData) GetBw() float32 {
+	if x != nil {
+		return x.Bw
+	}
+	return 0
+}
+
+func (x *PlayerNetworkData) GetDesync() float32 {
+	if x != nil {
+		return x.Desync
 	}
 	return 0
 }
@@ -2027,7 +2655,7 @@ type GeneralEvent struct {
 
 func (x *GeneralEvent) Reset() {
 	*x = GeneralEvent{}
-	mi := &file_ocap_v2_proto_msgTypes[21]
+	mi := &file_ocap_v2_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2039,7 +2667,7 @@ func (x *GeneralEvent) String() string {
 func (*GeneralEvent) ProtoMessage() {}
 
 func (x *GeneralEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[21]
+	mi := &file_ocap_v2_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2052,7 +2680,7 @@ func (x *GeneralEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GeneralEvent.ProtoReflect.Descriptor instead.
 func (*GeneralEvent) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{21}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *GeneralEvent) GetName() string {
@@ -2079,7 +2707,7 @@ type ConnectEvent struct {
 
 func (x *ConnectEvent) Reset() {
 	*x = ConnectEvent{}
-	mi := &file_ocap_v2_proto_msgTypes[22]
+	mi := &file_ocap_v2_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2091,7 +2719,7 @@ func (x *ConnectEvent) String() string {
 func (*ConnectEvent) ProtoMessage() {}
 
 func (x *ConnectEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[22]
+	mi := &file_ocap_v2_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2104,7 +2732,7 @@ func (x *ConnectEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConnectEvent.ProtoReflect.Descriptor instead.
 func (*ConnectEvent) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{22}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ConnectEvent) GetUnitName() string {
@@ -2131,7 +2759,7 @@ type EndMissionEvent struct {
 
 func (x *EndMissionEvent) Reset() {
 	*x = EndMissionEvent{}
-	mi := &file_ocap_v2_proto_msgTypes[23]
+	mi := &file_ocap_v2_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2143,7 +2771,7 @@ func (x *EndMissionEvent) String() string {
 func (*EndMissionEvent) ProtoMessage() {}
 
 func (x *EndMissionEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[23]
+	mi := &file_ocap_v2_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2156,7 +2784,7 @@ func (x *EndMissionEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndMissionEvent.ProtoReflect.Descriptor instead.
 func (*EndMissionEvent) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{23}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *EndMissionEvent) GetSide() string {
@@ -2185,7 +2813,7 @@ type Chunk struct {
 
 func (x *Chunk) Reset() {
 	*x = Chunk{}
-	mi := &file_ocap_v2_proto_msgTypes[24]
+	mi := &file_ocap_v2_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2197,7 +2825,7 @@ func (x *Chunk) String() string {
 func (*Chunk) ProtoMessage() {}
 
 func (x *Chunk) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[24]
+	mi := &file_ocap_v2_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2210,7 +2838,7 @@ func (x *Chunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Chunk.ProtoReflect.Descriptor instead.
 func (*Chunk) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{24}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *Chunk) GetIndex() uint32 {
@@ -2252,7 +2880,7 @@ type Frame struct {
 
 func (x *Frame) Reset() {
 	*x = Frame{}
-	mi := &file_ocap_v2_proto_msgTypes[25]
+	mi := &file_ocap_v2_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2264,7 +2892,7 @@ func (x *Frame) String() string {
 func (*Frame) ProtoMessage() {}
 
 func (x *Frame) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[25]
+	mi := &file_ocap_v2_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2277,7 +2905,7 @@ func (x *Frame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Frame.ProtoReflect.Descriptor instead.
 func (*Frame) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{25}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *Frame) GetFrameNum() uint32 {
@@ -2325,7 +2953,7 @@ type SoldierState struct {
 
 func (x *SoldierState) Reset() {
 	*x = SoldierState{}
-	mi := &file_ocap_v2_proto_msgTypes[26]
+	mi := &file_ocap_v2_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2337,7 +2965,7 @@ func (x *SoldierState) String() string {
 func (*SoldierState) ProtoMessage() {}
 
 func (x *SoldierState) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[26]
+	mi := &file_ocap_v2_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2350,7 +2978,7 @@ func (x *SoldierState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SoldierState.ProtoReflect.Descriptor instead.
 func (*SoldierState) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{26}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *SoldierState) GetId() uint32 {
@@ -2479,7 +3107,7 @@ type SoldierScores struct {
 
 func (x *SoldierScores) Reset() {
 	*x = SoldierScores{}
-	mi := &file_ocap_v2_proto_msgTypes[27]
+	mi := &file_ocap_v2_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2491,7 +3119,7 @@ func (x *SoldierScores) String() string {
 func (*SoldierScores) ProtoMessage() {}
 
 func (x *SoldierScores) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[27]
+	mi := &file_ocap_v2_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2504,7 +3132,7 @@ func (x *SoldierScores) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SoldierScores.ProtoReflect.Descriptor instead.
 func (*SoldierScores) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{27}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *SoldierScores) GetInfantryKills() uint32 {
@@ -2569,7 +3197,7 @@ type VehicleState struct {
 
 func (x *VehicleState) Reset() {
 	*x = VehicleState{}
-	mi := &file_ocap_v2_proto_msgTypes[28]
+	mi := &file_ocap_v2_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2581,7 +3209,7 @@ func (x *VehicleState) String() string {
 func (*VehicleState) ProtoMessage() {}
 
 func (x *VehicleState) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[28]
+	mi := &file_ocap_v2_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2594,7 +3222,7 @@ func (x *VehicleState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VehicleState.ProtoReflect.Descriptor instead.
 func (*VehicleState) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{28}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *VehicleState) GetId() uint32 {
@@ -2700,7 +3328,7 @@ type MarkerDef struct {
 
 func (x *MarkerDef) Reset() {
 	*x = MarkerDef{}
-	mi := &file_ocap_v2_proto_msgTypes[29]
+	mi := &file_ocap_v2_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2712,7 +3340,7 @@ func (x *MarkerDef) String() string {
 func (*MarkerDef) ProtoMessage() {}
 
 func (x *MarkerDef) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[29]
+	mi := &file_ocap_v2_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2725,7 +3353,7 @@ func (x *MarkerDef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkerDef.ProtoReflect.Descriptor instead.
 func (*MarkerDef) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{29}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *MarkerDef) GetType() string {
@@ -2818,7 +3446,7 @@ type MarkerPosition struct {
 
 func (x *MarkerPosition) Reset() {
 	*x = MarkerPosition{}
-	mi := &file_ocap_v2_proto_msgTypes[30]
+	mi := &file_ocap_v2_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2830,7 +3458,7 @@ func (x *MarkerPosition) String() string {
 func (*MarkerPosition) ProtoMessage() {}
 
 func (x *MarkerPosition) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[30]
+	mi := &file_ocap_v2_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2843,7 +3471,7 @@ func (x *MarkerPosition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MarkerPosition.ProtoReflect.Descriptor instead.
 func (*MarkerPosition) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{30}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *MarkerPosition) GetFrameNum() uint32 {
@@ -2894,7 +3522,7 @@ type TimeSample struct {
 
 func (x *TimeSample) Reset() {
 	*x = TimeSample{}
-	mi := &file_ocap_v2_proto_msgTypes[31]
+	mi := &file_ocap_v2_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2906,7 +3534,7 @@ func (x *TimeSample) String() string {
 func (*TimeSample) ProtoMessage() {}
 
 func (x *TimeSample) ProtoReflect() protoreflect.Message {
-	mi := &file_ocap_v2_proto_msgTypes[31]
+	mi := &file_ocap_v2_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2919,7 +3547,7 @@ func (x *TimeSample) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TimeSample.ProtoReflect.Descriptor instead.
 func (*TimeSample) Descriptor() ([]byte, []int) {
-	return file_ocap_v2_proto_rawDescGZIP(), []int{31}
+	return file_ocap_v2_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *TimeSample) GetFrameNum() uint32 {
@@ -3057,7 +3685,7 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\x06weapon\x18\x04 \x01(\tR\x06weapon\x12\x1a\n" +
 	"\bmagazine\x18\x05 \x01(\tR\bmagazine\x12\x1f\n" +
 	"\vfiring_mode\x18\x06 \x01(\tR\n" +
-	"firingMode\"\xf4\x04\n" +
+	"firingMode\"\xf3\x04\n" +
 	"\x05Event\x12\x1b\n" +
 	"\tframe_num\x18\x01 \x01(\rR\bframeNum\x12(\n" +
 	"\x04kill\x18\n" +
@@ -3070,13 +3698,12 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\x05radio\x18\x0e \x01(\v2\x13.ocap.v2.RadioEventH\x00R\x05radio\x128\n" +
 	"\n" +
 	"ace3_death\x18\x0f \x01(\v2\x17.ocap.v2.Ace3DeathEventH\x00R\tace3Death\x12J\n" +
-	"\x10ace3_unconscious\x18\x10 \x01(\v2\x1d.ocap.v2.Ace3UnconsciousEventH\x00R\x0face3Unconscious\x128\n" +
-	"\n" +
-	"server_fps\x18\x11 \x01(\v2\x17.ocap.v2.ServerFpsEventH\x00R\tserverFps\x121\n" +
-	"\ageneral\x18\x12 \x01(\v2\x15.ocap.v2.GeneralEventH\x00R\ageneral\x121\n" +
-	"\aconnect\x18\x13 \x01(\v2\x15.ocap.v2.ConnectEventH\x00R\aconnect\x12;\n" +
-	"\vend_mission\x18\x14 \x01(\v2\x18.ocap.v2.EndMissionEventH\x00R\n" +
-	"endMissionB\a\n" +
+	"\x10ace3_unconscious\x18\x10 \x01(\v2\x1d.ocap.v2.Ace3UnconsciousEventH\x00R\x0face3Unconscious\x121\n" +
+	"\ageneral\x18\x11 \x01(\v2\x15.ocap.v2.GeneralEventH\x00R\ageneral\x121\n" +
+	"\aconnect\x18\x12 \x01(\v2\x15.ocap.v2.ConnectEventH\x00R\aconnect\x12;\n" +
+	"\vend_mission\x18\x13 \x01(\v2\x18.ocap.v2.EndMissionEventH\x00R\n" +
+	"endMission\x127\n" +
+	"\ttelemetry\x18\x14 \x01(\v2\x17.ocap.v2.TelemetryEventH\x00R\ttelemetryB\a\n" +
 	"\x05event\"\x98\x03\n" +
 	"\tKillEvent\x12*\n" +
 	"\x11victim_soldier_id\x18\x01 \x01(\rR\x0fvictimSoldierId\x12*\n" +
@@ -3162,11 +3789,74 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\x14Ace3UnconsciousEvent\x12\x1d\n" +
 	"\n" +
 	"soldier_id\x18\x01 \x01(\rR\tsoldierId\x12%\n" +
-	"\x0eis_unconscious\x18\x02 \x01(\bR\risUnconscious\"J\n" +
-	"\x0eServerFpsEvent\x12\x1f\n" +
+	"\x0eis_unconscious\x18\x02 \x01(\bR\risUnconscious\"\xeb\x02\n" +
+	"\x0eTelemetryEvent\x12\x1f\n" +
 	"\vfps_average\x18\x01 \x01(\x02R\n" +
 	"fpsAverage\x12\x17\n" +
-	"\afps_min\x18\x02 \x01(\x02R\x06fpsMin\"<\n" +
+	"\afps_min\x18\x02 \x01(\x02R\x06fpsMin\x12G\n" +
+	"\x12side_entity_counts\x18\x03 \x01(\v2\x19.ocap.v2.SideEntityCountsR\x10sideEntityCounts\x12?\n" +
+	"\rglobal_counts\x18\x04 \x01(\v2\x1a.ocap.v2.GlobalEntityCountR\fglobalCounts\x12/\n" +
+	"\ascripts\x18\x05 \x01(\v2\x15.ocap.v2.ScriptCountsR\ascripts\x12.\n" +
+	"\aweather\x18\x06 \x01(\v2\x14.ocap.v2.WeatherDataR\aweather\x124\n" +
+	"\aplayers\x18\a \x03(\v2\x1a.ocap.v2.PlayerNetworkDataR\aplayers\"\xe0\x01\n" +
+	"\x10SideEntityCounts\x12,\n" +
+	"\x04east\x18\x01 \x01(\v2\x18.ocap.v2.SideEntityCountR\x04east\x12,\n" +
+	"\x04west\x18\x02 \x01(\v2\x18.ocap.v2.SideEntityCountR\x04west\x12:\n" +
+	"\vindependent\x18\x03 \x01(\v2\x18.ocap.v2.SideEntityCountR\vindependent\x124\n" +
+	"\bcivilian\x18\x04 \x01(\v2\x18.ocap.v2.SideEntityCountR\bcivilian\"q\n" +
+	"\x0fSideEntityCount\x12-\n" +
+	"\x05local\x18\x01 \x01(\v2\x17.ocap.v2.EntityLocalityR\x05local\x12/\n" +
+	"\x06remote\x18\x02 \x01(\v2\x17.ocap.v2.EntityLocalityR\x06remote\"\xcc\x01\n" +
+	"\x0eEntityLocality\x12\x1f\n" +
+	"\vunits_total\x18\x01 \x01(\rR\n" +
+	"unitsTotal\x12\x1f\n" +
+	"\vunits_alive\x18\x02 \x01(\rR\n" +
+	"unitsAlive\x12\x1d\n" +
+	"\n" +
+	"units_dead\x18\x03 \x01(\rR\tunitsDead\x12\x16\n" +
+	"\x06groups\x18\x04 \x01(\rR\x06groups\x12\x1a\n" +
+	"\bvehicles\x18\x05 \x01(\rR\bvehicles\x12%\n" +
+	"\x0eweapon_holders\x18\x06 \x01(\rR\rweaponHolders\"\xa3\x02\n" +
+	"\x11GlobalEntityCount\x12\x1f\n" +
+	"\vunits_alive\x18\x01 \x01(\rR\n" +
+	"unitsAlive\x12\x1d\n" +
+	"\n" +
+	"units_dead\x18\x02 \x01(\rR\tunitsDead\x12\x16\n" +
+	"\x06groups\x18\x03 \x01(\rR\x06groups\x12\x1a\n" +
+	"\bvehicles\x18\x04 \x01(\rR\bvehicles\x12%\n" +
+	"\x0eweapon_holders\x18\x05 \x01(\rR\rweaponHolders\x12#\n" +
+	"\rplayers_alive\x18\x06 \x01(\rR\fplayersAlive\x12!\n" +
+	"\fplayers_dead\x18\a \x01(\rR\vplayersDead\x12+\n" +
+	"\x11players_connected\x18\b \x01(\rR\x10playersConnected\"~\n" +
+	"\fScriptCounts\x12\x14\n" +
+	"\x05spawn\x18\x01 \x01(\rR\x05spawn\x12\x17\n" +
+	"\aexec_vm\x18\x02 \x01(\rR\x06execVm\x12\x12\n" +
+	"\x04exec\x18\x03 \x01(\rR\x04exec\x12\x19\n" +
+	"\bexec_fsm\x18\x04 \x01(\rR\aexecFsm\x12\x10\n" +
+	"\x03pfh\x18\x05 \x01(\rR\x03pfh\"\xd3\x02\n" +
+	"\vWeatherData\x12\x10\n" +
+	"\x03fog\x18\x01 \x01(\x02R\x03fog\x12\x1a\n" +
+	"\bovercast\x18\x02 \x01(\x02R\bovercast\x12\x12\n" +
+	"\x04rain\x18\x03 \x01(\x02R\x04rain\x12\x1a\n" +
+	"\bhumidity\x18\x04 \x01(\x02R\bhumidity\x12\x14\n" +
+	"\x05waves\x18\x05 \x01(\x02R\x05waves\x12\x19\n" +
+	"\bwind_dir\x18\x06 \x01(\x02R\awindDir\x12\x19\n" +
+	"\bwind_str\x18\a \x01(\x02R\awindStr\x12\x14\n" +
+	"\x05gusts\x18\b \x01(\x02R\x05gusts\x12\x1e\n" +
+	"\n" +
+	"lightnings\x18\t \x01(\x02R\n" +
+	"lightnings\x12%\n" +
+	"\x0emoon_intensity\x18\n" +
+	" \x01(\x02R\rmoonIntensity\x12\x1d\n" +
+	"\n" +
+	"moon_phase\x18\v \x01(\x02R\tmoonPhase\x12\x1e\n" +
+	"\vsun_or_moon\x18\f \x01(\x02R\tsunOrMoon\"u\n" +
+	"\x11PlayerNetworkData\x12\x10\n" +
+	"\x03uid\x18\x01 \x01(\tR\x03uid\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
+	"\x04ping\x18\x03 \x01(\x02R\x04ping\x12\x0e\n" +
+	"\x02bw\x18\x04 \x01(\x02R\x02bw\x12\x16\n" +
+	"\x06desync\x18\x05 \x01(\x02R\x06desync\"<\n" +
 	"\fGeneralEvent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
@@ -3281,7 +3971,7 @@ func file_ocap_v2_proto_rawDescGZIP() []byte {
 }
 
 var file_ocap_v2_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_ocap_v2_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_ocap_v2_proto_msgTypes = make([]protoimpl.MessageInfo, 39)
 var file_ocap_v2_proto_goTypes = []any{
 	(Side)(0),                    // 0: ocap.v2.Side
 	(*Position3D)(nil),           // 1: ocap.v2.Position3D
@@ -3304,18 +3994,25 @@ var file_ocap_v2_proto_goTypes = []any{
 	(*RadioEvent)(nil),           // 18: ocap.v2.RadioEvent
 	(*Ace3DeathEvent)(nil),       // 19: ocap.v2.Ace3DeathEvent
 	(*Ace3UnconsciousEvent)(nil), // 20: ocap.v2.Ace3UnconsciousEvent
-	(*ServerFpsEvent)(nil),       // 21: ocap.v2.ServerFpsEvent
-	(*GeneralEvent)(nil),         // 22: ocap.v2.GeneralEvent
-	(*ConnectEvent)(nil),         // 23: ocap.v2.ConnectEvent
-	(*EndMissionEvent)(nil),      // 24: ocap.v2.EndMissionEvent
-	(*Chunk)(nil),                // 25: ocap.v2.Chunk
-	(*Frame)(nil),                // 26: ocap.v2.Frame
-	(*SoldierState)(nil),         // 27: ocap.v2.SoldierState
-	(*SoldierScores)(nil),        // 28: ocap.v2.SoldierScores
-	(*VehicleState)(nil),         // 29: ocap.v2.VehicleState
-	(*MarkerDef)(nil),            // 30: ocap.v2.MarkerDef
-	(*MarkerPosition)(nil),       // 31: ocap.v2.MarkerPosition
-	(*TimeSample)(nil),           // 32: ocap.v2.TimeSample
+	(*TelemetryEvent)(nil),       // 21: ocap.v2.TelemetryEvent
+	(*SideEntityCounts)(nil),     // 22: ocap.v2.SideEntityCounts
+	(*SideEntityCount)(nil),      // 23: ocap.v2.SideEntityCount
+	(*EntityLocality)(nil),       // 24: ocap.v2.EntityLocality
+	(*GlobalEntityCount)(nil),    // 25: ocap.v2.GlobalEntityCount
+	(*ScriptCounts)(nil),         // 26: ocap.v2.ScriptCounts
+	(*WeatherData)(nil),          // 27: ocap.v2.WeatherData
+	(*PlayerNetworkData)(nil),    // 28: ocap.v2.PlayerNetworkData
+	(*GeneralEvent)(nil),         // 29: ocap.v2.GeneralEvent
+	(*ConnectEvent)(nil),         // 30: ocap.v2.ConnectEvent
+	(*EndMissionEvent)(nil),      // 31: ocap.v2.EndMissionEvent
+	(*Chunk)(nil),                // 32: ocap.v2.Chunk
+	(*Frame)(nil),                // 33: ocap.v2.Frame
+	(*SoldierState)(nil),         // 34: ocap.v2.SoldierState
+	(*SoldierScores)(nil),        // 35: ocap.v2.SoldierScores
+	(*VehicleState)(nil),         // 36: ocap.v2.VehicleState
+	(*MarkerDef)(nil),            // 37: ocap.v2.MarkerDef
+	(*MarkerPosition)(nil),       // 38: ocap.v2.MarkerPosition
+	(*TimeSample)(nil),           // 39: ocap.v2.TimeSample
 }
 var file_ocap_v2_proto_depIdxs = []int32{
 	3,  // 0: ocap.v2.Manifest.world:type_name -> ocap.v2.WorldMeta
@@ -3323,8 +4020,8 @@ var file_ocap_v2_proto_depIdxs = []int32{
 	8,  // 2: ocap.v2.Manifest.soldiers:type_name -> ocap.v2.SoldierDef
 	9,  // 3: ocap.v2.Manifest.vehicles:type_name -> ocap.v2.VehicleDef
 	11, // 4: ocap.v2.Manifest.events:type_name -> ocap.v2.Event
-	30, // 5: ocap.v2.Manifest.markers:type_name -> ocap.v2.MarkerDef
-	32, // 6: ocap.v2.Manifest.times:type_name -> ocap.v2.TimeSample
+	37, // 5: ocap.v2.Manifest.markers:type_name -> ocap.v2.MarkerDef
+	39, // 6: ocap.v2.Manifest.times:type_name -> ocap.v2.TimeSample
 	5,  // 7: ocap.v2.MissionMeta.playable_slots:type_name -> ocap.v2.PlayableSlots
 	6,  // 8: ocap.v2.MissionMeta.side_friendly:type_name -> ocap.v2.SideFriendly
 	7,  // 9: ocap.v2.MissionMeta.addons:type_name -> ocap.v2.Addon
@@ -3339,28 +4036,39 @@ var file_ocap_v2_proto_depIdxs = []int32{
 	18, // 18: ocap.v2.Event.radio:type_name -> ocap.v2.RadioEvent
 	19, // 19: ocap.v2.Event.ace3_death:type_name -> ocap.v2.Ace3DeathEvent
 	20, // 20: ocap.v2.Event.ace3_unconscious:type_name -> ocap.v2.Ace3UnconsciousEvent
-	21, // 21: ocap.v2.Event.server_fps:type_name -> ocap.v2.ServerFpsEvent
-	22, // 22: ocap.v2.Event.general:type_name -> ocap.v2.GeneralEvent
-	23, // 23: ocap.v2.Event.connect:type_name -> ocap.v2.ConnectEvent
-	24, // 24: ocap.v2.Event.end_mission:type_name -> ocap.v2.EndMissionEvent
+	29, // 21: ocap.v2.Event.general:type_name -> ocap.v2.GeneralEvent
+	30, // 22: ocap.v2.Event.connect:type_name -> ocap.v2.ConnectEvent
+	31, // 23: ocap.v2.Event.end_mission:type_name -> ocap.v2.EndMissionEvent
+	21, // 24: ocap.v2.Event.telemetry:type_name -> ocap.v2.TelemetryEvent
 	15, // 25: ocap.v2.ProjectileEvent.trajectory:type_name -> ocap.v2.TrajectoryPoint
 	16, // 26: ocap.v2.ProjectileEvent.hits:type_name -> ocap.v2.ProjectileHit
 	1,  // 27: ocap.v2.TrajectoryPoint.position:type_name -> ocap.v2.Position3D
 	1,  // 28: ocap.v2.ProjectileHit.position:type_name -> ocap.v2.Position3D
-	26, // 29: ocap.v2.Chunk.frames:type_name -> ocap.v2.Frame
-	27, // 30: ocap.v2.Frame.soldiers:type_name -> ocap.v2.SoldierState
-	29, // 31: ocap.v2.Frame.vehicles:type_name -> ocap.v2.VehicleState
-	1,  // 32: ocap.v2.SoldierState.position:type_name -> ocap.v2.Position3D
-	28, // 33: ocap.v2.SoldierState.scores:type_name -> ocap.v2.SoldierScores
-	1,  // 34: ocap.v2.VehicleState.position:type_name -> ocap.v2.Position3D
-	0,  // 35: ocap.v2.MarkerDef.side:type_name -> ocap.v2.Side
-	31, // 36: ocap.v2.MarkerDef.positions:type_name -> ocap.v2.MarkerPosition
-	1,  // 37: ocap.v2.MarkerPosition.position:type_name -> ocap.v2.Position3D
-	38, // [38:38] is the sub-list for method output_type
-	38, // [38:38] is the sub-list for method input_type
-	38, // [38:38] is the sub-list for extension type_name
-	38, // [38:38] is the sub-list for extension extendee
-	0,  // [0:38] is the sub-list for field type_name
+	22, // 29: ocap.v2.TelemetryEvent.side_entity_counts:type_name -> ocap.v2.SideEntityCounts
+	25, // 30: ocap.v2.TelemetryEvent.global_counts:type_name -> ocap.v2.GlobalEntityCount
+	26, // 31: ocap.v2.TelemetryEvent.scripts:type_name -> ocap.v2.ScriptCounts
+	27, // 32: ocap.v2.TelemetryEvent.weather:type_name -> ocap.v2.WeatherData
+	28, // 33: ocap.v2.TelemetryEvent.players:type_name -> ocap.v2.PlayerNetworkData
+	23, // 34: ocap.v2.SideEntityCounts.east:type_name -> ocap.v2.SideEntityCount
+	23, // 35: ocap.v2.SideEntityCounts.west:type_name -> ocap.v2.SideEntityCount
+	23, // 36: ocap.v2.SideEntityCounts.independent:type_name -> ocap.v2.SideEntityCount
+	23, // 37: ocap.v2.SideEntityCounts.civilian:type_name -> ocap.v2.SideEntityCount
+	24, // 38: ocap.v2.SideEntityCount.local:type_name -> ocap.v2.EntityLocality
+	24, // 39: ocap.v2.SideEntityCount.remote:type_name -> ocap.v2.EntityLocality
+	33, // 40: ocap.v2.Chunk.frames:type_name -> ocap.v2.Frame
+	34, // 41: ocap.v2.Frame.soldiers:type_name -> ocap.v2.SoldierState
+	36, // 42: ocap.v2.Frame.vehicles:type_name -> ocap.v2.VehicleState
+	1,  // 43: ocap.v2.SoldierState.position:type_name -> ocap.v2.Position3D
+	35, // 44: ocap.v2.SoldierState.scores:type_name -> ocap.v2.SoldierScores
+	1,  // 45: ocap.v2.VehicleState.position:type_name -> ocap.v2.Position3D
+	0,  // 46: ocap.v2.MarkerDef.side:type_name -> ocap.v2.Side
+	38, // 47: ocap.v2.MarkerDef.positions:type_name -> ocap.v2.MarkerPosition
+	1,  // 48: ocap.v2.MarkerPosition.position:type_name -> ocap.v2.Position3D
+	49, // [49:49] is the sub-list for method output_type
+	49, // [49:49] is the sub-list for method input_type
+	49, // [49:49] is the sub-list for extension type_name
+	49, // [49:49] is the sub-list for extension extendee
+	0,  // [0:49] is the sub-list for field type_name
 }
 
 func init() { file_ocap_v2_proto_init() }
@@ -3376,10 +4084,10 @@ func file_ocap_v2_proto_init() {
 		(*Event_Radio)(nil),
 		(*Event_Ace3Death)(nil),
 		(*Event_Ace3Unconscious)(nil),
-		(*Event_ServerFps)(nil),
 		(*Event_General)(nil),
 		(*Event_Connect)(nil),
 		(*Event_EndMission)(nil),
+		(*Event_Telemetry)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -3387,7 +4095,7 @@ func file_ocap_v2_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ocap_v2_proto_rawDesc), len(file_ocap_v2_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   32,
+			NumMessages:   39,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

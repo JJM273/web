@@ -172,10 +172,10 @@ export interface Event {
   radio?: RadioEvent | undefined;
   ace3Death?: Ace3DeathEvent | undefined;
   ace3Unconscious?: Ace3UnconsciousEvent | undefined;
-  serverFps?: ServerFpsEvent | undefined;
   general?: GeneralEvent | undefined;
   connect?: ConnectEvent | undefined;
   endMission?: EndMissionEvent | undefined;
+  telemetry?: TelemetryEvent | undefined;
 }
 
 export interface KillEvent {
@@ -265,9 +265,77 @@ export interface Ace3UnconsciousEvent {
   isUnconscious: boolean;
 }
 
-export interface ServerFpsEvent {
+export interface TelemetryEvent {
   fpsAverage: number;
   fpsMin: number;
+  sideEntityCounts: SideEntityCounts | undefined;
+  globalCounts: GlobalEntityCount | undefined;
+  scripts: ScriptCounts | undefined;
+  weather: WeatherData | undefined;
+  players: PlayerNetworkData[];
+}
+
+export interface SideEntityCounts {
+  east: SideEntityCount | undefined;
+  west: SideEntityCount | undefined;
+  independent: SideEntityCount | undefined;
+  civilian: SideEntityCount | undefined;
+}
+
+export interface SideEntityCount {
+  local: EntityLocality | undefined;
+  remote: EntityLocality | undefined;
+}
+
+export interface EntityLocality {
+  unitsTotal: number;
+  unitsAlive: number;
+  unitsDead: number;
+  groups: number;
+  vehicles: number;
+  weaponHolders: number;
+}
+
+export interface GlobalEntityCount {
+  unitsAlive: number;
+  unitsDead: number;
+  groups: number;
+  vehicles: number;
+  weaponHolders: number;
+  playersAlive: number;
+  playersDead: number;
+  playersConnected: number;
+}
+
+export interface ScriptCounts {
+  spawn: number;
+  execVm: number;
+  exec: number;
+  execFsm: number;
+  pfh: number;
+}
+
+export interface WeatherData {
+  fog: number;
+  overcast: number;
+  rain: number;
+  humidity: number;
+  waves: number;
+  windDir: number;
+  windStr: number;
+  gusts: number;
+  lightnings: number;
+  moonIntensity: number;
+  moonPhase: number;
+  sunOrMoon: number;
+}
+
+export interface PlayerNetworkData {
+  uid: string;
+  name: string;
+  ping: number;
+  bw: number;
+  desync: number;
 }
 
 export interface GeneralEvent {
@@ -2054,10 +2122,10 @@ function createBaseEvent(): Event {
     radio: undefined,
     ace3Death: undefined,
     ace3Unconscious: undefined,
-    serverFps: undefined,
     general: undefined,
     connect: undefined,
     endMission: undefined,
+    telemetry: undefined,
   };
 }
 
@@ -2087,17 +2155,17 @@ export const Event: MessageFns<Event> = {
     if (message.ace3Unconscious !== undefined) {
       Ace3UnconsciousEvent.encode(message.ace3Unconscious, writer.uint32(130).fork()).join();
     }
-    if (message.serverFps !== undefined) {
-      ServerFpsEvent.encode(message.serverFps, writer.uint32(138).fork()).join();
-    }
     if (message.general !== undefined) {
-      GeneralEvent.encode(message.general, writer.uint32(146).fork()).join();
+      GeneralEvent.encode(message.general, writer.uint32(138).fork()).join();
     }
     if (message.connect !== undefined) {
-      ConnectEvent.encode(message.connect, writer.uint32(154).fork()).join();
+      ConnectEvent.encode(message.connect, writer.uint32(146).fork()).join();
     }
     if (message.endMission !== undefined) {
-      EndMissionEvent.encode(message.endMission, writer.uint32(162).fork()).join();
+      EndMissionEvent.encode(message.endMission, writer.uint32(154).fork()).join();
+    }
+    if (message.telemetry !== undefined) {
+      TelemetryEvent.encode(message.telemetry, writer.uint32(162).fork()).join();
     }
     return writer;
   },
@@ -2178,7 +2246,7 @@ export const Event: MessageFns<Event> = {
             break;
           }
 
-          message.serverFps = ServerFpsEvent.decode(reader, reader.uint32());
+          message.general = GeneralEvent.decode(reader, reader.uint32());
           continue;
         }
         case 18: {
@@ -2186,7 +2254,7 @@ export const Event: MessageFns<Event> = {
             break;
           }
 
-          message.general = GeneralEvent.decode(reader, reader.uint32());
+          message.connect = ConnectEvent.decode(reader, reader.uint32());
           continue;
         }
         case 19: {
@@ -2194,7 +2262,7 @@ export const Event: MessageFns<Event> = {
             break;
           }
 
-          message.connect = ConnectEvent.decode(reader, reader.uint32());
+          message.endMission = EndMissionEvent.decode(reader, reader.uint32());
           continue;
         }
         case 20: {
@@ -2202,7 +2270,7 @@ export const Event: MessageFns<Event> = {
             break;
           }
 
-          message.endMission = EndMissionEvent.decode(reader, reader.uint32());
+          message.telemetry = TelemetryEvent.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -2236,11 +2304,6 @@ export const Event: MessageFns<Event> = {
         : isSet(object.ace3_unconscious)
         ? Ace3UnconsciousEvent.fromJSON(object.ace3_unconscious)
         : undefined,
-      serverFps: isSet(object.serverFps)
-        ? ServerFpsEvent.fromJSON(object.serverFps)
-        : isSet(object.server_fps)
-        ? ServerFpsEvent.fromJSON(object.server_fps)
-        : undefined,
       general: isSet(object.general) ? GeneralEvent.fromJSON(object.general) : undefined,
       connect: isSet(object.connect) ? ConnectEvent.fromJSON(object.connect) : undefined,
       endMission: isSet(object.endMission)
@@ -2248,6 +2311,7 @@ export const Event: MessageFns<Event> = {
         : isSet(object.end_mission)
         ? EndMissionEvent.fromJSON(object.end_mission)
         : undefined,
+      telemetry: isSet(object.telemetry) ? TelemetryEvent.fromJSON(object.telemetry) : undefined,
     };
   },
 
@@ -2277,9 +2341,6 @@ export const Event: MessageFns<Event> = {
     if (message.ace3Unconscious !== undefined) {
       obj.ace3Unconscious = Ace3UnconsciousEvent.toJSON(message.ace3Unconscious);
     }
-    if (message.serverFps !== undefined) {
-      obj.serverFps = ServerFpsEvent.toJSON(message.serverFps);
-    }
     if (message.general !== undefined) {
       obj.general = GeneralEvent.toJSON(message.general);
     }
@@ -2288,6 +2349,9 @@ export const Event: MessageFns<Event> = {
     }
     if (message.endMission !== undefined) {
       obj.endMission = EndMissionEvent.toJSON(message.endMission);
+    }
+    if (message.telemetry !== undefined) {
+      obj.telemetry = TelemetryEvent.toJSON(message.telemetry);
     }
     return obj;
   },
@@ -2313,9 +2377,6 @@ export const Event: MessageFns<Event> = {
     message.ace3Unconscious = (object.ace3Unconscious !== undefined && object.ace3Unconscious !== null)
       ? Ace3UnconsciousEvent.fromPartial(object.ace3Unconscious)
       : undefined;
-    message.serverFps = (object.serverFps !== undefined && object.serverFps !== null)
-      ? ServerFpsEvent.fromPartial(object.serverFps)
-      : undefined;
     message.general = (object.general !== undefined && object.general !== null)
       ? GeneralEvent.fromPartial(object.general)
       : undefined;
@@ -2324,6 +2385,9 @@ export const Event: MessageFns<Event> = {
       : undefined;
     message.endMission = (object.endMission !== undefined && object.endMission !== null)
       ? EndMissionEvent.fromPartial(object.endMission)
+      : undefined;
+    message.telemetry = (object.telemetry !== undefined && object.telemetry !== null)
+      ? TelemetryEvent.fromPartial(object.telemetry)
       : undefined;
     return message;
   },
@@ -3833,25 +3897,48 @@ export const Ace3UnconsciousEvent: MessageFns<Ace3UnconsciousEvent> = {
   },
 };
 
-function createBaseServerFpsEvent(): ServerFpsEvent {
-  return { fpsAverage: 0, fpsMin: 0 };
+function createBaseTelemetryEvent(): TelemetryEvent {
+  return {
+    fpsAverage: 0,
+    fpsMin: 0,
+    sideEntityCounts: undefined,
+    globalCounts: undefined,
+    scripts: undefined,
+    weather: undefined,
+    players: [],
+  };
 }
 
-export const ServerFpsEvent: MessageFns<ServerFpsEvent> = {
-  encode(message: ServerFpsEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+export const TelemetryEvent: MessageFns<TelemetryEvent> = {
+  encode(message: TelemetryEvent, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.fpsAverage !== 0) {
       writer.uint32(13).float(message.fpsAverage);
     }
     if (message.fpsMin !== 0) {
       writer.uint32(21).float(message.fpsMin);
     }
+    if (message.sideEntityCounts !== undefined) {
+      SideEntityCounts.encode(message.sideEntityCounts, writer.uint32(26).fork()).join();
+    }
+    if (message.globalCounts !== undefined) {
+      GlobalEntityCount.encode(message.globalCounts, writer.uint32(34).fork()).join();
+    }
+    if (message.scripts !== undefined) {
+      ScriptCounts.encode(message.scripts, writer.uint32(42).fork()).join();
+    }
+    if (message.weather !== undefined) {
+      WeatherData.encode(message.weather, writer.uint32(50).fork()).join();
+    }
+    for (const v of message.players) {
+      PlayerNetworkData.encode(v!, writer.uint32(58).fork()).join();
+    }
     return writer;
   },
 
-  decode(input: BinaryReader | Uint8Array, length?: number): ServerFpsEvent {
+  decode(input: BinaryReader | Uint8Array, length?: number): TelemetryEvent {
     const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
     const end = length === undefined ? reader.len : reader.pos + length;
-    const message = createBaseServerFpsEvent();
+    const message = createBaseTelemetryEvent();
     while (reader.pos < end) {
       const tag = reader.uint32();
       switch (tag >>> 3) {
@@ -3871,6 +3958,46 @@ export const ServerFpsEvent: MessageFns<ServerFpsEvent> = {
           message.fpsMin = reader.float();
           continue;
         }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sideEntityCounts = SideEntityCounts.decode(reader, reader.uint32());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.globalCounts = GlobalEntityCount.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.scripts = ScriptCounts.decode(reader, reader.uint32());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.weather = WeatherData.decode(reader, reader.uint32());
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.players.push(PlayerNetworkData.decode(reader, reader.uint32()));
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -3880,7 +4007,7 @@ export const ServerFpsEvent: MessageFns<ServerFpsEvent> = {
     return message;
   },
 
-  fromJSON(object: any): ServerFpsEvent {
+  fromJSON(object: any): TelemetryEvent {
     return {
       fpsAverage: isSet(object.fpsAverage)
         ? globalThis.Number(object.fpsAverage)
@@ -3892,10 +4019,25 @@ export const ServerFpsEvent: MessageFns<ServerFpsEvent> = {
         : isSet(object.fps_min)
         ? globalThis.Number(object.fps_min)
         : 0,
+      sideEntityCounts: isSet(object.sideEntityCounts)
+        ? SideEntityCounts.fromJSON(object.sideEntityCounts)
+        : isSet(object.side_entity_counts)
+        ? SideEntityCounts.fromJSON(object.side_entity_counts)
+        : undefined,
+      globalCounts: isSet(object.globalCounts)
+        ? GlobalEntityCount.fromJSON(object.globalCounts)
+        : isSet(object.global_counts)
+        ? GlobalEntityCount.fromJSON(object.global_counts)
+        : undefined,
+      scripts: isSet(object.scripts) ? ScriptCounts.fromJSON(object.scripts) : undefined,
+      weather: isSet(object.weather) ? WeatherData.fromJSON(object.weather) : undefined,
+      players: globalThis.Array.isArray(object?.players)
+        ? object.players.map((e: any) => PlayerNetworkData.fromJSON(e))
+        : [],
     };
   },
 
-  toJSON(message: ServerFpsEvent): unknown {
+  toJSON(message: TelemetryEvent): unknown {
     const obj: any = {};
     if (message.fpsAverage !== 0) {
       obj.fpsAverage = message.fpsAverage;
@@ -3903,16 +4045,1126 @@ export const ServerFpsEvent: MessageFns<ServerFpsEvent> = {
     if (message.fpsMin !== 0) {
       obj.fpsMin = message.fpsMin;
     }
+    if (message.sideEntityCounts !== undefined) {
+      obj.sideEntityCounts = SideEntityCounts.toJSON(message.sideEntityCounts);
+    }
+    if (message.globalCounts !== undefined) {
+      obj.globalCounts = GlobalEntityCount.toJSON(message.globalCounts);
+    }
+    if (message.scripts !== undefined) {
+      obj.scripts = ScriptCounts.toJSON(message.scripts);
+    }
+    if (message.weather !== undefined) {
+      obj.weather = WeatherData.toJSON(message.weather);
+    }
+    if (message.players?.length) {
+      obj.players = message.players.map((e) => PlayerNetworkData.toJSON(e));
+    }
     return obj;
   },
 
-  create<I extends Exact<DeepPartial<ServerFpsEvent>, I>>(base?: I): ServerFpsEvent {
-    return ServerFpsEvent.fromPartial(base ?? ({} as any));
+  create<I extends Exact<DeepPartial<TelemetryEvent>, I>>(base?: I): TelemetryEvent {
+    return TelemetryEvent.fromPartial(base ?? ({} as any));
   },
-  fromPartial<I extends Exact<DeepPartial<ServerFpsEvent>, I>>(object: I): ServerFpsEvent {
-    const message = createBaseServerFpsEvent();
+  fromPartial<I extends Exact<DeepPartial<TelemetryEvent>, I>>(object: I): TelemetryEvent {
+    const message = createBaseTelemetryEvent();
     message.fpsAverage = object.fpsAverage ?? 0;
     message.fpsMin = object.fpsMin ?? 0;
+    message.sideEntityCounts = (object.sideEntityCounts !== undefined && object.sideEntityCounts !== null)
+      ? SideEntityCounts.fromPartial(object.sideEntityCounts)
+      : undefined;
+    message.globalCounts = (object.globalCounts !== undefined && object.globalCounts !== null)
+      ? GlobalEntityCount.fromPartial(object.globalCounts)
+      : undefined;
+    message.scripts = (object.scripts !== undefined && object.scripts !== null)
+      ? ScriptCounts.fromPartial(object.scripts)
+      : undefined;
+    message.weather = (object.weather !== undefined && object.weather !== null)
+      ? WeatherData.fromPartial(object.weather)
+      : undefined;
+    message.players = object.players?.map((e) => PlayerNetworkData.fromPartial(e)) || [];
+    return message;
+  },
+};
+
+function createBaseSideEntityCounts(): SideEntityCounts {
+  return { east: undefined, west: undefined, independent: undefined, civilian: undefined };
+}
+
+export const SideEntityCounts: MessageFns<SideEntityCounts> = {
+  encode(message: SideEntityCounts, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.east !== undefined) {
+      SideEntityCount.encode(message.east, writer.uint32(10).fork()).join();
+    }
+    if (message.west !== undefined) {
+      SideEntityCount.encode(message.west, writer.uint32(18).fork()).join();
+    }
+    if (message.independent !== undefined) {
+      SideEntityCount.encode(message.independent, writer.uint32(26).fork()).join();
+    }
+    if (message.civilian !== undefined) {
+      SideEntityCount.encode(message.civilian, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SideEntityCounts {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSideEntityCounts();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.east = SideEntityCount.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.west = SideEntityCount.decode(reader, reader.uint32());
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.independent = SideEntityCount.decode(reader, reader.uint32());
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.civilian = SideEntityCount.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SideEntityCounts {
+    return {
+      east: isSet(object.east) ? SideEntityCount.fromJSON(object.east) : undefined,
+      west: isSet(object.west) ? SideEntityCount.fromJSON(object.west) : undefined,
+      independent: isSet(object.independent) ? SideEntityCount.fromJSON(object.independent) : undefined,
+      civilian: isSet(object.civilian) ? SideEntityCount.fromJSON(object.civilian) : undefined,
+    };
+  },
+
+  toJSON(message: SideEntityCounts): unknown {
+    const obj: any = {};
+    if (message.east !== undefined) {
+      obj.east = SideEntityCount.toJSON(message.east);
+    }
+    if (message.west !== undefined) {
+      obj.west = SideEntityCount.toJSON(message.west);
+    }
+    if (message.independent !== undefined) {
+      obj.independent = SideEntityCount.toJSON(message.independent);
+    }
+    if (message.civilian !== undefined) {
+      obj.civilian = SideEntityCount.toJSON(message.civilian);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SideEntityCounts>, I>>(base?: I): SideEntityCounts {
+    return SideEntityCounts.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SideEntityCounts>, I>>(object: I): SideEntityCounts {
+    const message = createBaseSideEntityCounts();
+    message.east = (object.east !== undefined && object.east !== null)
+      ? SideEntityCount.fromPartial(object.east)
+      : undefined;
+    message.west = (object.west !== undefined && object.west !== null)
+      ? SideEntityCount.fromPartial(object.west)
+      : undefined;
+    message.independent = (object.independent !== undefined && object.independent !== null)
+      ? SideEntityCount.fromPartial(object.independent)
+      : undefined;
+    message.civilian = (object.civilian !== undefined && object.civilian !== null)
+      ? SideEntityCount.fromPartial(object.civilian)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseSideEntityCount(): SideEntityCount {
+  return { local: undefined, remote: undefined };
+}
+
+export const SideEntityCount: MessageFns<SideEntityCount> = {
+  encode(message: SideEntityCount, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.local !== undefined) {
+      EntityLocality.encode(message.local, writer.uint32(10).fork()).join();
+    }
+    if (message.remote !== undefined) {
+      EntityLocality.encode(message.remote, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): SideEntityCount {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseSideEntityCount();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.local = EntityLocality.decode(reader, reader.uint32());
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.remote = EntityLocality.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): SideEntityCount {
+    return {
+      local: isSet(object.local) ? EntityLocality.fromJSON(object.local) : undefined,
+      remote: isSet(object.remote) ? EntityLocality.fromJSON(object.remote) : undefined,
+    };
+  },
+
+  toJSON(message: SideEntityCount): unknown {
+    const obj: any = {};
+    if (message.local !== undefined) {
+      obj.local = EntityLocality.toJSON(message.local);
+    }
+    if (message.remote !== undefined) {
+      obj.remote = EntityLocality.toJSON(message.remote);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<SideEntityCount>, I>>(base?: I): SideEntityCount {
+    return SideEntityCount.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<SideEntityCount>, I>>(object: I): SideEntityCount {
+    const message = createBaseSideEntityCount();
+    message.local = (object.local !== undefined && object.local !== null)
+      ? EntityLocality.fromPartial(object.local)
+      : undefined;
+    message.remote = (object.remote !== undefined && object.remote !== null)
+      ? EntityLocality.fromPartial(object.remote)
+      : undefined;
+    return message;
+  },
+};
+
+function createBaseEntityLocality(): EntityLocality {
+  return { unitsTotal: 0, unitsAlive: 0, unitsDead: 0, groups: 0, vehicles: 0, weaponHolders: 0 };
+}
+
+export const EntityLocality: MessageFns<EntityLocality> = {
+  encode(message: EntityLocality, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.unitsTotal !== 0) {
+      writer.uint32(8).uint32(message.unitsTotal);
+    }
+    if (message.unitsAlive !== 0) {
+      writer.uint32(16).uint32(message.unitsAlive);
+    }
+    if (message.unitsDead !== 0) {
+      writer.uint32(24).uint32(message.unitsDead);
+    }
+    if (message.groups !== 0) {
+      writer.uint32(32).uint32(message.groups);
+    }
+    if (message.vehicles !== 0) {
+      writer.uint32(40).uint32(message.vehicles);
+    }
+    if (message.weaponHolders !== 0) {
+      writer.uint32(48).uint32(message.weaponHolders);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): EntityLocality {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseEntityLocality();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.unitsTotal = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.unitsAlive = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.unitsDead = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.groups = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.vehicles = reader.uint32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.weaponHolders = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): EntityLocality {
+    return {
+      unitsTotal: isSet(object.unitsTotal)
+        ? globalThis.Number(object.unitsTotal)
+        : isSet(object.units_total)
+        ? globalThis.Number(object.units_total)
+        : 0,
+      unitsAlive: isSet(object.unitsAlive)
+        ? globalThis.Number(object.unitsAlive)
+        : isSet(object.units_alive)
+        ? globalThis.Number(object.units_alive)
+        : 0,
+      unitsDead: isSet(object.unitsDead)
+        ? globalThis.Number(object.unitsDead)
+        : isSet(object.units_dead)
+        ? globalThis.Number(object.units_dead)
+        : 0,
+      groups: isSet(object.groups) ? globalThis.Number(object.groups) : 0,
+      vehicles: isSet(object.vehicles) ? globalThis.Number(object.vehicles) : 0,
+      weaponHolders: isSet(object.weaponHolders)
+        ? globalThis.Number(object.weaponHolders)
+        : isSet(object.weapon_holders)
+        ? globalThis.Number(object.weapon_holders)
+        : 0,
+    };
+  },
+
+  toJSON(message: EntityLocality): unknown {
+    const obj: any = {};
+    if (message.unitsTotal !== 0) {
+      obj.unitsTotal = Math.round(message.unitsTotal);
+    }
+    if (message.unitsAlive !== 0) {
+      obj.unitsAlive = Math.round(message.unitsAlive);
+    }
+    if (message.unitsDead !== 0) {
+      obj.unitsDead = Math.round(message.unitsDead);
+    }
+    if (message.groups !== 0) {
+      obj.groups = Math.round(message.groups);
+    }
+    if (message.vehicles !== 0) {
+      obj.vehicles = Math.round(message.vehicles);
+    }
+    if (message.weaponHolders !== 0) {
+      obj.weaponHolders = Math.round(message.weaponHolders);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<EntityLocality>, I>>(base?: I): EntityLocality {
+    return EntityLocality.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<EntityLocality>, I>>(object: I): EntityLocality {
+    const message = createBaseEntityLocality();
+    message.unitsTotal = object.unitsTotal ?? 0;
+    message.unitsAlive = object.unitsAlive ?? 0;
+    message.unitsDead = object.unitsDead ?? 0;
+    message.groups = object.groups ?? 0;
+    message.vehicles = object.vehicles ?? 0;
+    message.weaponHolders = object.weaponHolders ?? 0;
+    return message;
+  },
+};
+
+function createBaseGlobalEntityCount(): GlobalEntityCount {
+  return {
+    unitsAlive: 0,
+    unitsDead: 0,
+    groups: 0,
+    vehicles: 0,
+    weaponHolders: 0,
+    playersAlive: 0,
+    playersDead: 0,
+    playersConnected: 0,
+  };
+}
+
+export const GlobalEntityCount: MessageFns<GlobalEntityCount> = {
+  encode(message: GlobalEntityCount, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.unitsAlive !== 0) {
+      writer.uint32(8).uint32(message.unitsAlive);
+    }
+    if (message.unitsDead !== 0) {
+      writer.uint32(16).uint32(message.unitsDead);
+    }
+    if (message.groups !== 0) {
+      writer.uint32(24).uint32(message.groups);
+    }
+    if (message.vehicles !== 0) {
+      writer.uint32(32).uint32(message.vehicles);
+    }
+    if (message.weaponHolders !== 0) {
+      writer.uint32(40).uint32(message.weaponHolders);
+    }
+    if (message.playersAlive !== 0) {
+      writer.uint32(48).uint32(message.playersAlive);
+    }
+    if (message.playersDead !== 0) {
+      writer.uint32(56).uint32(message.playersDead);
+    }
+    if (message.playersConnected !== 0) {
+      writer.uint32(64).uint32(message.playersConnected);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GlobalEntityCount {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGlobalEntityCount();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.unitsAlive = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.unitsDead = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.groups = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.vehicles = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.weaponHolders = reader.uint32();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.playersAlive = reader.uint32();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.playersDead = reader.uint32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.playersConnected = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): GlobalEntityCount {
+    return {
+      unitsAlive: isSet(object.unitsAlive)
+        ? globalThis.Number(object.unitsAlive)
+        : isSet(object.units_alive)
+        ? globalThis.Number(object.units_alive)
+        : 0,
+      unitsDead: isSet(object.unitsDead)
+        ? globalThis.Number(object.unitsDead)
+        : isSet(object.units_dead)
+        ? globalThis.Number(object.units_dead)
+        : 0,
+      groups: isSet(object.groups) ? globalThis.Number(object.groups) : 0,
+      vehicles: isSet(object.vehicles) ? globalThis.Number(object.vehicles) : 0,
+      weaponHolders: isSet(object.weaponHolders)
+        ? globalThis.Number(object.weaponHolders)
+        : isSet(object.weapon_holders)
+        ? globalThis.Number(object.weapon_holders)
+        : 0,
+      playersAlive: isSet(object.playersAlive)
+        ? globalThis.Number(object.playersAlive)
+        : isSet(object.players_alive)
+        ? globalThis.Number(object.players_alive)
+        : 0,
+      playersDead: isSet(object.playersDead)
+        ? globalThis.Number(object.playersDead)
+        : isSet(object.players_dead)
+        ? globalThis.Number(object.players_dead)
+        : 0,
+      playersConnected: isSet(object.playersConnected)
+        ? globalThis.Number(object.playersConnected)
+        : isSet(object.players_connected)
+        ? globalThis.Number(object.players_connected)
+        : 0,
+    };
+  },
+
+  toJSON(message: GlobalEntityCount): unknown {
+    const obj: any = {};
+    if (message.unitsAlive !== 0) {
+      obj.unitsAlive = Math.round(message.unitsAlive);
+    }
+    if (message.unitsDead !== 0) {
+      obj.unitsDead = Math.round(message.unitsDead);
+    }
+    if (message.groups !== 0) {
+      obj.groups = Math.round(message.groups);
+    }
+    if (message.vehicles !== 0) {
+      obj.vehicles = Math.round(message.vehicles);
+    }
+    if (message.weaponHolders !== 0) {
+      obj.weaponHolders = Math.round(message.weaponHolders);
+    }
+    if (message.playersAlive !== 0) {
+      obj.playersAlive = Math.round(message.playersAlive);
+    }
+    if (message.playersDead !== 0) {
+      obj.playersDead = Math.round(message.playersDead);
+    }
+    if (message.playersConnected !== 0) {
+      obj.playersConnected = Math.round(message.playersConnected);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<GlobalEntityCount>, I>>(base?: I): GlobalEntityCount {
+    return GlobalEntityCount.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<GlobalEntityCount>, I>>(object: I): GlobalEntityCount {
+    const message = createBaseGlobalEntityCount();
+    message.unitsAlive = object.unitsAlive ?? 0;
+    message.unitsDead = object.unitsDead ?? 0;
+    message.groups = object.groups ?? 0;
+    message.vehicles = object.vehicles ?? 0;
+    message.weaponHolders = object.weaponHolders ?? 0;
+    message.playersAlive = object.playersAlive ?? 0;
+    message.playersDead = object.playersDead ?? 0;
+    message.playersConnected = object.playersConnected ?? 0;
+    return message;
+  },
+};
+
+function createBaseScriptCounts(): ScriptCounts {
+  return { spawn: 0, execVm: 0, exec: 0, execFsm: 0, pfh: 0 };
+}
+
+export const ScriptCounts: MessageFns<ScriptCounts> = {
+  encode(message: ScriptCounts, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.spawn !== 0) {
+      writer.uint32(8).uint32(message.spawn);
+    }
+    if (message.execVm !== 0) {
+      writer.uint32(16).uint32(message.execVm);
+    }
+    if (message.exec !== 0) {
+      writer.uint32(24).uint32(message.exec);
+    }
+    if (message.execFsm !== 0) {
+      writer.uint32(32).uint32(message.execFsm);
+    }
+    if (message.pfh !== 0) {
+      writer.uint32(40).uint32(message.pfh);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ScriptCounts {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseScriptCounts();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.spawn = reader.uint32();
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.execVm = reader.uint32();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.exec = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.execFsm = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.pfh = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): ScriptCounts {
+    return {
+      spawn: isSet(object.spawn) ? globalThis.Number(object.spawn) : 0,
+      execVm: isSet(object.execVm)
+        ? globalThis.Number(object.execVm)
+        : isSet(object.exec_vm)
+        ? globalThis.Number(object.exec_vm)
+        : 0,
+      exec: isSet(object.exec) ? globalThis.Number(object.exec) : 0,
+      execFsm: isSet(object.execFsm)
+        ? globalThis.Number(object.execFsm)
+        : isSet(object.exec_fsm)
+        ? globalThis.Number(object.exec_fsm)
+        : 0,
+      pfh: isSet(object.pfh) ? globalThis.Number(object.pfh) : 0,
+    };
+  },
+
+  toJSON(message: ScriptCounts): unknown {
+    const obj: any = {};
+    if (message.spawn !== 0) {
+      obj.spawn = Math.round(message.spawn);
+    }
+    if (message.execVm !== 0) {
+      obj.execVm = Math.round(message.execVm);
+    }
+    if (message.exec !== 0) {
+      obj.exec = Math.round(message.exec);
+    }
+    if (message.execFsm !== 0) {
+      obj.execFsm = Math.round(message.execFsm);
+    }
+    if (message.pfh !== 0) {
+      obj.pfh = Math.round(message.pfh);
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<ScriptCounts>, I>>(base?: I): ScriptCounts {
+    return ScriptCounts.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<ScriptCounts>, I>>(object: I): ScriptCounts {
+    const message = createBaseScriptCounts();
+    message.spawn = object.spawn ?? 0;
+    message.execVm = object.execVm ?? 0;
+    message.exec = object.exec ?? 0;
+    message.execFsm = object.execFsm ?? 0;
+    message.pfh = object.pfh ?? 0;
+    return message;
+  },
+};
+
+function createBaseWeatherData(): WeatherData {
+  return {
+    fog: 0,
+    overcast: 0,
+    rain: 0,
+    humidity: 0,
+    waves: 0,
+    windDir: 0,
+    windStr: 0,
+    gusts: 0,
+    lightnings: 0,
+    moonIntensity: 0,
+    moonPhase: 0,
+    sunOrMoon: 0,
+  };
+}
+
+export const WeatherData: MessageFns<WeatherData> = {
+  encode(message: WeatherData, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.fog !== 0) {
+      writer.uint32(13).float(message.fog);
+    }
+    if (message.overcast !== 0) {
+      writer.uint32(21).float(message.overcast);
+    }
+    if (message.rain !== 0) {
+      writer.uint32(29).float(message.rain);
+    }
+    if (message.humidity !== 0) {
+      writer.uint32(37).float(message.humidity);
+    }
+    if (message.waves !== 0) {
+      writer.uint32(45).float(message.waves);
+    }
+    if (message.windDir !== 0) {
+      writer.uint32(53).float(message.windDir);
+    }
+    if (message.windStr !== 0) {
+      writer.uint32(61).float(message.windStr);
+    }
+    if (message.gusts !== 0) {
+      writer.uint32(69).float(message.gusts);
+    }
+    if (message.lightnings !== 0) {
+      writer.uint32(77).float(message.lightnings);
+    }
+    if (message.moonIntensity !== 0) {
+      writer.uint32(85).float(message.moonIntensity);
+    }
+    if (message.moonPhase !== 0) {
+      writer.uint32(93).float(message.moonPhase);
+    }
+    if (message.sunOrMoon !== 0) {
+      writer.uint32(101).float(message.sunOrMoon);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): WeatherData {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseWeatherData();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 13) {
+            break;
+          }
+
+          message.fog = reader.float();
+          continue;
+        }
+        case 2: {
+          if (tag !== 21) {
+            break;
+          }
+
+          message.overcast = reader.float();
+          continue;
+        }
+        case 3: {
+          if (tag !== 29) {
+            break;
+          }
+
+          message.rain = reader.float();
+          continue;
+        }
+        case 4: {
+          if (tag !== 37) {
+            break;
+          }
+
+          message.humidity = reader.float();
+          continue;
+        }
+        case 5: {
+          if (tag !== 45) {
+            break;
+          }
+
+          message.waves = reader.float();
+          continue;
+        }
+        case 6: {
+          if (tag !== 53) {
+            break;
+          }
+
+          message.windDir = reader.float();
+          continue;
+        }
+        case 7: {
+          if (tag !== 61) {
+            break;
+          }
+
+          message.windStr = reader.float();
+          continue;
+        }
+        case 8: {
+          if (tag !== 69) {
+            break;
+          }
+
+          message.gusts = reader.float();
+          continue;
+        }
+        case 9: {
+          if (tag !== 77) {
+            break;
+          }
+
+          message.lightnings = reader.float();
+          continue;
+        }
+        case 10: {
+          if (tag !== 85) {
+            break;
+          }
+
+          message.moonIntensity = reader.float();
+          continue;
+        }
+        case 11: {
+          if (tag !== 93) {
+            break;
+          }
+
+          message.moonPhase = reader.float();
+          continue;
+        }
+        case 12: {
+          if (tag !== 101) {
+            break;
+          }
+
+          message.sunOrMoon = reader.float();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): WeatherData {
+    return {
+      fog: isSet(object.fog) ? globalThis.Number(object.fog) : 0,
+      overcast: isSet(object.overcast) ? globalThis.Number(object.overcast) : 0,
+      rain: isSet(object.rain) ? globalThis.Number(object.rain) : 0,
+      humidity: isSet(object.humidity) ? globalThis.Number(object.humidity) : 0,
+      waves: isSet(object.waves) ? globalThis.Number(object.waves) : 0,
+      windDir: isSet(object.windDir)
+        ? globalThis.Number(object.windDir)
+        : isSet(object.wind_dir)
+        ? globalThis.Number(object.wind_dir)
+        : 0,
+      windStr: isSet(object.windStr)
+        ? globalThis.Number(object.windStr)
+        : isSet(object.wind_str)
+        ? globalThis.Number(object.wind_str)
+        : 0,
+      gusts: isSet(object.gusts) ? globalThis.Number(object.gusts) : 0,
+      lightnings: isSet(object.lightnings) ? globalThis.Number(object.lightnings) : 0,
+      moonIntensity: isSet(object.moonIntensity)
+        ? globalThis.Number(object.moonIntensity)
+        : isSet(object.moon_intensity)
+        ? globalThis.Number(object.moon_intensity)
+        : 0,
+      moonPhase: isSet(object.moonPhase)
+        ? globalThis.Number(object.moonPhase)
+        : isSet(object.moon_phase)
+        ? globalThis.Number(object.moon_phase)
+        : 0,
+      sunOrMoon: isSet(object.sunOrMoon)
+        ? globalThis.Number(object.sunOrMoon)
+        : isSet(object.sun_or_moon)
+        ? globalThis.Number(object.sun_or_moon)
+        : 0,
+    };
+  },
+
+  toJSON(message: WeatherData): unknown {
+    const obj: any = {};
+    if (message.fog !== 0) {
+      obj.fog = message.fog;
+    }
+    if (message.overcast !== 0) {
+      obj.overcast = message.overcast;
+    }
+    if (message.rain !== 0) {
+      obj.rain = message.rain;
+    }
+    if (message.humidity !== 0) {
+      obj.humidity = message.humidity;
+    }
+    if (message.waves !== 0) {
+      obj.waves = message.waves;
+    }
+    if (message.windDir !== 0) {
+      obj.windDir = message.windDir;
+    }
+    if (message.windStr !== 0) {
+      obj.windStr = message.windStr;
+    }
+    if (message.gusts !== 0) {
+      obj.gusts = message.gusts;
+    }
+    if (message.lightnings !== 0) {
+      obj.lightnings = message.lightnings;
+    }
+    if (message.moonIntensity !== 0) {
+      obj.moonIntensity = message.moonIntensity;
+    }
+    if (message.moonPhase !== 0) {
+      obj.moonPhase = message.moonPhase;
+    }
+    if (message.sunOrMoon !== 0) {
+      obj.sunOrMoon = message.sunOrMoon;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<WeatherData>, I>>(base?: I): WeatherData {
+    return WeatherData.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<WeatherData>, I>>(object: I): WeatherData {
+    const message = createBaseWeatherData();
+    message.fog = object.fog ?? 0;
+    message.overcast = object.overcast ?? 0;
+    message.rain = object.rain ?? 0;
+    message.humidity = object.humidity ?? 0;
+    message.waves = object.waves ?? 0;
+    message.windDir = object.windDir ?? 0;
+    message.windStr = object.windStr ?? 0;
+    message.gusts = object.gusts ?? 0;
+    message.lightnings = object.lightnings ?? 0;
+    message.moonIntensity = object.moonIntensity ?? 0;
+    message.moonPhase = object.moonPhase ?? 0;
+    message.sunOrMoon = object.sunOrMoon ?? 0;
+    return message;
+  },
+};
+
+function createBasePlayerNetworkData(): PlayerNetworkData {
+  return { uid: "", name: "", ping: 0, bw: 0, desync: 0 };
+}
+
+export const PlayerNetworkData: MessageFns<PlayerNetworkData> = {
+  encode(message: PlayerNetworkData, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.uid !== "") {
+      writer.uint32(10).string(message.uid);
+    }
+    if (message.name !== "") {
+      writer.uint32(18).string(message.name);
+    }
+    if (message.ping !== 0) {
+      writer.uint32(29).float(message.ping);
+    }
+    if (message.bw !== 0) {
+      writer.uint32(37).float(message.bw);
+    }
+    if (message.desync !== 0) {
+      writer.uint32(45).float(message.desync);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PlayerNetworkData {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePlayerNetworkData();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.uid = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 29) {
+            break;
+          }
+
+          message.ping = reader.float();
+          continue;
+        }
+        case 4: {
+          if (tag !== 37) {
+            break;
+          }
+
+          message.bw = reader.float();
+          continue;
+        }
+        case 5: {
+          if (tag !== 45) {
+            break;
+          }
+
+          message.desync = reader.float();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+
+  fromJSON(object: any): PlayerNetworkData {
+    return {
+      uid: isSet(object.uid) ? globalThis.String(object.uid) : "",
+      name: isSet(object.name) ? globalThis.String(object.name) : "",
+      ping: isSet(object.ping) ? globalThis.Number(object.ping) : 0,
+      bw: isSet(object.bw) ? globalThis.Number(object.bw) : 0,
+      desync: isSet(object.desync) ? globalThis.Number(object.desync) : 0,
+    };
+  },
+
+  toJSON(message: PlayerNetworkData): unknown {
+    const obj: any = {};
+    if (message.uid !== "") {
+      obj.uid = message.uid;
+    }
+    if (message.name !== "") {
+      obj.name = message.name;
+    }
+    if (message.ping !== 0) {
+      obj.ping = message.ping;
+    }
+    if (message.bw !== 0) {
+      obj.bw = message.bw;
+    }
+    if (message.desync !== 0) {
+      obj.desync = message.desync;
+    }
+    return obj;
+  },
+
+  create<I extends Exact<DeepPartial<PlayerNetworkData>, I>>(base?: I): PlayerNetworkData {
+    return PlayerNetworkData.fromPartial(base ?? ({} as any));
+  },
+  fromPartial<I extends Exact<DeepPartial<PlayerNetworkData>, I>>(object: I): PlayerNetworkData {
+    const message = createBasePlayerNetworkData();
+    message.uid = object.uid ?? "";
+    message.name = object.name ?? "";
+    message.ping = object.ping ?? 0;
+    message.bw = object.bw ?? 0;
+    message.desync = object.desync ?? 0;
     return message;
   },
 };

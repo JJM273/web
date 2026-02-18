@@ -125,10 +125,10 @@ message Event {
     RadioEvent radio = 14;
     Ace3DeathEvent ace3_death = 15;
     Ace3UnconsciousEvent ace3_unconscious = 16;
-    ServerFpsEvent server_fps = 17;
-    GeneralEvent general = 18;
-    ConnectEvent connect = 19;
-    EndMissionEvent end_mission = 20;
+    GeneralEvent general = 17;
+    ConnectEvent connect = 18;
+    EndMissionEvent end_mission = 19;
+    TelemetryEvent telemetry = 20;
   }
 }
 
@@ -215,9 +215,77 @@ message Ace3UnconsciousEvent {
   bool is_unconscious = 2;
 }
 
-message ServerFpsEvent {
+message TelemetryEvent {
   float fps_average = 1;
   float fps_min = 2;
+  SideEntityCounts side_entity_counts = 3;
+  GlobalEntityCount global_counts = 4;
+  ScriptCounts scripts = 5;
+  WeatherData weather = 6;
+  repeated PlayerNetworkData players = 7;
+}
+
+message SideEntityCounts {
+  SideEntityCount east = 1;
+  SideEntityCount west = 2;
+  SideEntityCount independent = 3;
+  SideEntityCount civilian = 4;
+}
+
+message SideEntityCount {
+  EntityLocality local = 1;
+  EntityLocality remote = 2;
+}
+
+message EntityLocality {
+  uint32 units_total = 1;
+  uint32 units_alive = 2;
+  uint32 units_dead = 3;
+  uint32 groups = 4;
+  uint32 vehicles = 5;
+  uint32 weapon_holders = 6;
+}
+
+message GlobalEntityCount {
+  uint32 units_alive = 1;
+  uint32 units_dead = 2;
+  uint32 groups = 3;
+  uint32 vehicles = 4;
+  uint32 weapon_holders = 5;
+  uint32 players_alive = 6;
+  uint32 players_dead = 7;
+  uint32 players_connected = 8;
+}
+
+message ScriptCounts {
+  uint32 spawn = 1;
+  uint32 exec_vm = 2;
+  uint32 exec = 3;
+  uint32 exec_fsm = 4;
+  uint32 pfh = 5;
+}
+
+message WeatherData {
+  float fog = 1;
+  float overcast = 2;
+  float rain = 3;
+  float humidity = 4;
+  float waves = 5;
+  float wind_dir = 6;
+  float wind_str = 7;
+  float gusts = 8;
+  float lightnings = 9;
+  float moon_intensity = 10;
+  float moon_phase = 11;
+  float sun_or_moon = 12;
+}
+
+message PlayerNetworkData {
+  string uid = 1;
+  string name = 2;
+  float ping = 3;
+  float bw = 4;
+  float desync = 5;
 }
 
 message GeneralEvent {
