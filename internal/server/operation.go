@@ -454,6 +454,14 @@ func (r *RepoOperation) UpdateSchemaVersion(ctx context.Context, id int64, versi
 	return err
 }
 
+// UpdateStreamingMeta updates duration and player count for a live streaming operation.
+func (r *RepoOperation) UpdateStreamingMeta(ctx context.Context, id int64, duration float64, playerCount int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE operations SET mission_duration = ?, player_count = ? WHERE id = ?`,
+		duration, playerCount, id)
+	return err
+}
+
 // UpdateMissionDuration updates the mission duration for an operation
 func (r *RepoOperation) UpdateMissionDuration(ctx context.Context, id int64, duration float64) error {
 	_, err := r.db.ExecContext(ctx,

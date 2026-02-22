@@ -154,23 +154,21 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 				"world", payload.World.WorldName)
 
 			// Insert a "streaming" operation so it appears in the operations list.
-			if h.repoOperation != nil {
-				filename := ingestion.MakeFilename(payload.Mission.MissionName)
-				op := Operation{
-					WorldName:        payload.World.WorldName,
-					MissionName:      payload.Mission.MissionName,
-					Filename:         filename,
-					Date:             time.Now().Format("2006-01-02"),
-					Tag:              payload.Mission.Tag,
-					StorageFormat:    "protobuf",
-					ConversionStatus: ConversionStatusStreaming,
-					SchemaVersion:    uint32(storage.SchemaVersionV2),
-				}
-				if err := h.repoOperation.Store(context.TODO(), &op); err != nil {
-					slog.Error("stream: failed to store streaming operation", "error", err)
-				} else {
-					streamingOpID = op.ID
-				}
+			filename := ingestion.MakeFilename(payload.Mission.MissionName)
+			op := Operation{
+				WorldName:        payload.World.WorldName,
+				MissionName:      payload.Mission.MissionName,
+				Filename:         filename,
+				Date:             time.Now().Format("2006-01-02"),
+				Tag:              payload.Mission.Tag,
+				StorageFormat:    "protobuf",
+				ConversionStatus: ConversionStatusStreaming,
+				SchemaVersion:    uint32(storage.SchemaVersionV2),
+			}
+			if err := h.repoOperation.Store(context.TODO(), &op); err != nil {
+				slog.Error("stream: failed to store streaming operation", "error", err)
+			} else {
+				streamingOpID = op.ID
 			}
 
 			writeAck(streaming.TypeStartMission)
@@ -328,6 +326,19 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			}
 			session.HandleTelemetry(evt)
 
+			// Update operation metadata so the operations list stays current.
+			if streamingOpID > 0 {
+				captureDelay := float64(1.0)
+				if session.Mission() != nil && session.Mission().CaptureDelay > 0 {
+					captureDelay = float64(session.Mission().CaptureDelay)
+				}
+				duration := float64(session.FrameCount()) * captureDelay
+				playerCount := int(evt.GlobalCounts.PlayersConnected)
+				if err := h.repoOperation.UpdateStreamingMeta(context.TODO(), streamingOpID, duration, playerCount); err != nil {
+					slog.Warn("stream: failed to update streaming meta", "error", err)
+				}
+			}
+
 		case streaming.TypeProjectileEvent:
 			if session == nil {
 				continue
@@ -401,71 +412,64 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2Outp
 		return fmt.Errorf("write JSON.gz: %w", err)
 	}
 
-	if h.repoOperation != nil {
-		// Use v2 output directory name as filename if v2 succeeded, otherwise v1.
-		filename := v1Filename
-		storageFormat := "json"
-		schemaVersion := uint32(storage.SchemaVersionV1)
-		conversionStatus := ConversionStatusPending
+	// Use v2 output directory name as filename if v2 succeeded, otherwise v1.
+	filename := v1Filename
+	storageFormat := "json"
+	schemaVersion := uint32(storage.SchemaVersionV1)
+	conversionStatus := ConversionStatusPending
 
-		if hasV2 {
-			filename = filepath.Base(v2OutputDir)
-			storageFormat = "protobuf"
-			schemaVersion = uint32(storage.SchemaVersionV2)
-			conversionStatus = ConversionStatusCompleted // v2 is already in final format
-		}
+	if hasV2 {
+		filename = filepath.Base(v2OutputDir)
+		storageFormat = "protobuf"
+		schemaVersion = uint32(storage.SchemaVersionV2)
+		conversionStatus = ConversionStatusCompleted // v2 is already in final format
+	}
 
-		op := Operation{
-			WorldName:        worldName,
-			MissionName:      missionName,
-			MissionDuration:  duration,
-			Filename:         filename,
-			Date:             time.Now().Format("2006-01-02"),
-			Tag:              tag,
-			StorageFormat:    storageFormat,
-			ConversionStatus: conversionStatus,
-			SchemaVersion:    schemaVersion,
-			ChunkCount:       chunkCount,
-		}
-		ctx := context.TODO()
+	op := Operation{
+		WorldName:        worldName,
+		MissionName:      missionName,
+		MissionDuration:  duration,
+		Filename:         filename,
+		Date:             time.Now().Format("2006-01-02"),
+		Tag:              tag,
+		StorageFormat:    storageFormat,
+		ConversionStatus: conversionStatus,
+		SchemaVersion:    schemaVersion,
+		ChunkCount:       chunkCount,
+	}
+	ctx := context.TODO()
 
-		if streamingOpID > 0 {
-			// Update the existing "streaming" row created at start_mission.
-			op.ID = streamingOpID
-			if err := h.repoOperation.Update(ctx, &op); err != nil {
-				return fmt.Errorf("update operation: %w", err)
-			}
-		} else {
-			if err := h.repoOperation.Store(ctx, &op); err != nil {
-				return fmt.Errorf("store operation: %w", err)
-			}
-		}
-
-		slog.Info("stream: finalized",
-			"id", op.ID,
-			"filename", filename,
-			"format", storageFormat,
-			"schemaVersion", schemaVersion,
-			"frames", session.FrameCount(),
-			"chunks", chunkCount,
-			"duration", duration,
-			"tag", tag)
-
-		// Only trigger conversion for v1 JSON (v2 is already complete).
-		if !hasV2 {
-			if h.conversionTrigger != nil {
-				h.conversionTrigger.TriggerConversion(op.ID, op.Filename)
-			} else {
-				if err := h.repoOperation.UpdateConversionStatus(ctx, op.ID, ConversionStatusCompleted); err != nil {
-					slog.Error("stream: failed to mark completed", "error", err)
-				}
-			}
+	if streamingOpID > 0 {
+		// Update the existing "streaming" row created at start_mission.
+		op.ID = streamingOpID
+		if err := h.repoOperation.Update(ctx, &op); err != nil {
+			return fmt.Errorf("update operation: %w", err)
 		}
 	} else {
-		slog.Info("stream: finalized (no db)",
-			"filename", v1Filename,
-			"frames", session.FrameCount(),
-			"tag", tag)
+		if err := h.repoOperation.Store(ctx, &op); err != nil {
+			return fmt.Errorf("store operation: %w", err)
+		}
+	}
+
+	slog.Info("stream: finalized",
+		"id", op.ID,
+		"filename", filename,
+		"format", storageFormat,
+		"schemaVersion", schemaVersion,
+		"frames", session.FrameCount(),
+		"chunks", chunkCount,
+		"duration", duration,
+		"tag", tag)
+
+	// Only trigger conversion for v1 JSON (v2 is already complete).
+	if !hasV2 {
+		if h.conversionTrigger != nil {
+			h.conversionTrigger.TriggerConversion(op.ID, op.Filename)
+		} else {
+			if err := h.repoOperation.UpdateConversionStatus(ctx, op.ID, ConversionStatusCompleted); err != nil {
+				slog.Error("stream: failed to mark completed", "error", err)
+			}
+		}
 	}
 
 	return nil
