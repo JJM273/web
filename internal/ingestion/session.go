@@ -798,15 +798,20 @@ func (s *Session) WriteJSONGz(dataDir string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
 
 	gw := gzip.NewWriter(f)
-	if err := json.NewEncoder(gw).Encode(data); err != nil {
-		gw.Close()
-		return "", fmt.Errorf("encode JSON: %w", err)
+	encodeErr := json.NewEncoder(gw).Encode(data)
+	gzipErr := gw.Close()
+	fileErr := f.Close()
+
+	if encodeErr != nil {
+		return "", fmt.Errorf("encode JSON: %w", encodeErr)
 	}
-	if err := gw.Close(); err != nil {
-		return "", fmt.Errorf("close gzip: %w", err)
+	if gzipErr != nil {
+		return "", fmt.Errorf("close gzip: %w", gzipErr)
+	}
+	if fileErr != nil {
+		return "", fmt.Errorf("close file: %w", fileErr)
 	}
 
 	return filename, nil

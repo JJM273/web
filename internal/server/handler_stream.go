@@ -124,6 +124,12 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 
 		counts[envelope.Type]++
 
+		// All messages except start_mission and end_mission require an active session.
+		if session == nil && envelope.Type != streaming.TypeStartMission && envelope.Type != streaming.TypeEndMission {
+			slog.Warn("stream: message received before start_mission, ignoring", "type", envelope.Type)
+			continue
+		}
+
 		switch envelope.Type {
 		case streaming.TypeStartMission:
 			var payload streaming.StartMissionPayload
@@ -184,9 +190,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			return
 
 		case streaming.TypeAddSoldier:
-			if session == nil {
-				continue
-			}
 			var sol core.Soldier
 			if err := json.Unmarshal(envelope.Payload, &sol); err != nil {
 				slog.Warn("stream: invalid add_soldier", "error", err)
@@ -195,9 +198,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleAddSoldier(sol)
 
 		case streaming.TypeSoldierState:
-			if session == nil {
-				continue
-			}
 			var st core.SoldierState
 			if err := json.Unmarshal(envelope.Payload, &st); err != nil {
 				slog.Warn("stream: invalid soldier_state", "error", err)
@@ -206,9 +206,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleSoldierState(st)
 
 		case streaming.TypeAddVehicle:
-			if session == nil {
-				continue
-			}
 			var veh core.Vehicle
 			if err := json.Unmarshal(envelope.Payload, &veh); err != nil {
 				slog.Warn("stream: invalid add_vehicle", "error", err)
@@ -217,9 +214,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleAddVehicle(veh)
 
 		case streaming.TypeVehicleState:
-			if session == nil {
-				continue
-			}
 			var st core.VehicleState
 			if err := json.Unmarshal(envelope.Payload, &st); err != nil {
 				slog.Warn("stream: invalid vehicle_state", "error", err)
@@ -228,9 +222,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleVehicleState(st)
 
 		case streaming.TypeAddMarker:
-			if session == nil {
-				continue
-			}
 			var m core.Marker
 			if err := json.Unmarshal(envelope.Payload, &m); err != nil {
 				slog.Warn("stream: invalid add_marker", "error", err)
@@ -239,9 +230,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleAddMarker(m)
 
 		case streaming.TypeMarkerState:
-			if session == nil {
-				continue
-			}
 			var st core.MarkerState
 			if err := json.Unmarshal(envelope.Payload, &st); err != nil {
 				slog.Warn("stream: invalid marker_state", "error", err)
@@ -250,9 +238,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleMarkerState(st)
 
 		case streaming.TypeDeleteMarker:
-			if session == nil {
-				continue
-			}
 			var dm core.DeleteMarker
 			if err := json.Unmarshal(envelope.Payload, &dm); err != nil {
 				slog.Warn("stream: invalid delete_marker", "error", err)
@@ -261,9 +246,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleDeleteMarker(dm.Name, dm.EndFrame)
 
 		case streaming.TypeFiredEvent:
-			if session == nil {
-				continue
-			}
 			var fe core.FiredEvent
 			if err := json.Unmarshal(envelope.Payload, &fe); err != nil {
 				slog.Warn("stream: invalid fired_event", "error", err)
@@ -272,9 +254,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleFiredEvent(fe)
 
 		case streaming.TypeKillEvent:
-			if session == nil {
-				continue
-			}
 			var evt core.KillEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid kill_event", "error", err)
@@ -283,9 +262,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleKillEvent(evt)
 
 		case streaming.TypeHitEvent:
-			if session == nil {
-				continue
-			}
 			var evt core.HitEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid hit_event", "error", err)
@@ -294,9 +270,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleHitEvent(evt)
 
 		case streaming.TypeGeneralEvent:
-			if session == nil {
-				continue
-			}
 			var evt core.GeneralEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid general_event", "error", err)
@@ -305,9 +278,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleGeneralEvent(evt)
 
 		case streaming.TypeChatEvent:
-			if session == nil {
-				continue
-			}
 			var evt core.ChatEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid chat_event", "error", err)
@@ -316,9 +286,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleChatEvent(evt)
 
 		case streaming.TypeTelemetry:
-			if session == nil {
-				continue
-			}
 			var evt core.TelemetryEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid telemetry", "error", err)
@@ -340,9 +307,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			}
 
 		case streaming.TypeProjectileEvent:
-			if session == nil {
-				continue
-			}
 			var evt core.ProjectileEvent
 			if err := json.Unmarshal(envelope.Payload, &evt); err != nil {
 				slog.Warn("stream: invalid projectile_event", "error", err)
@@ -351,9 +315,6 @@ func (h *Handler) streamLoop(ws *websocket.Conn) {
 			session.HandleProjectileEvent(evt)
 
 		case streaming.TypeTimeState:
-			if session == nil {
-				continue
-			}
 			var ts core.TimeState
 			if err := json.Unmarshal(envelope.Payload, &ts); err != nil {
 				slog.Warn("stream: invalid time_state", "error", err)
