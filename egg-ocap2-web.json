@@ -1,0 +1,106 @@
+{
+    "meta": {
+        "version": "PLCN_v3",
+        "update_url": null
+    },
+    "exported_at": "2026-02-17T00:00:00+00:00",
+    "name": "OCAP2 Web",
+    "author": "ocap2@github.com",
+    "uuid": "b3f5a8e2-7c41-4d6f-9e1a-2f8b0c3d4e5f",
+    "description": "OCAP2 Web Server — archives and replays Arma 3 military simulation missions on interactive Leaflet maps. Provides a web interface for browsing operations, streaming playback, and mission upload via API.",
+    "image": null,
+    "tags": [],
+    "features": null,
+    "docker_images": {
+        "ghcr.io/ocap2/web:latest": "ghcr.io/ocap2/web:latest"
+    },
+    "file_denylist": [],
+    "startup_commands": {
+        "Default": "/usr/local/ocap/app"
+    },
+    "config": {
+        "files": "{}",
+        "startup": "{\"done\":\"http server started on\"}",
+        "logs": "{}",
+        "stop": "^C"
+    },
+    "scripts": {
+        "installation": {
+            "script": "#!/bin/bash\nset -euo pipefail\n\n## Create persistent data directories\nmkdir -p /mnt/server/data /mnt/server/db /mnt/server/maps\n\necho \"Installation complete\"",
+            "container": "ghcr.io/ocap2/web:latest",
+            "entrypoint": "bash"
+        }
+    },
+    "variables": [
+        {
+            "name": "OCAP Secret",
+            "description": "Shared secret for mission uploads and streaming authentication. Must be changed from the default.",
+            "env_variable": "OCAP_SECRET",
+            "default_value": "change-me",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": ["required", "string", "min:6"],
+            "sort": 1
+        },
+        {
+            "name": "Listen Address",
+            "description": "Address and port the server binds to. Uses the Pelican-allocated port by default.",
+            "env_variable": "OCAP_LISTEN",
+            "default_value": "0.0.0.0:{{server.allocations.default.port}}",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": ["required", "string"],
+            "sort": 2
+        },
+        {
+            "name": "Database Path",
+            "description": "Path to the SQLite database file.",
+            "env_variable": "OCAP_DB",
+            "default_value": "/home/container/db/data.db",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": ["required", "string"],
+            "sort": 3
+        },
+        {
+            "name": "Data Directory",
+            "description": "Directory for mission data files (uploads and converted protobuf).",
+            "env_variable": "OCAP_DATA",
+            "default_value": "/home/container/data",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": ["required", "string"],
+            "sort": 4
+        },
+        {
+            "name": "Maps Directory",
+            "description": "Directory for map tile files (PMTiles).",
+            "env_variable": "OCAP_MAPS",
+            "default_value": "/home/container/maps",
+            "user_viewable": true,
+            "user_editable": false,
+            "rules": ["required", "string"],
+            "sort": 5
+        },
+        {
+            "name": "Enable Conversion",
+            "description": "Enable background conversion of JSON missions to chunked protobuf format for faster streaming playback.",
+            "env_variable": "OCAP_CONVERSION_ENABLED",
+            "default_value": "true",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": ["required", "string", "in:true,false"],
+            "sort": 6
+        },
+        {
+            "name": "Enable Streaming",
+            "description": "Enable the WebSocket streaming endpoint for live mission data ingestion from Arma 3.",
+            "env_variable": "OCAP_STREAMING_ENABLED",
+            "default_value": "false",
+            "user_viewable": true,
+            "user_editable": true,
+            "rules": ["required", "string", "in:true,false"],
+            "sort": 7
+        }
+    ]
+}
