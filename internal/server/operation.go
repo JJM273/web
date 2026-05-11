@@ -748,12 +748,9 @@ func unmarshalSideComposition(raw string) SideComposition {
 	return sc
 }
 
-// Update writes the streaming-finalize mutable fields for an existing
-// operation by ID. It deliberately does NOT touch player_count, kill_count,
-// side_composition, or player_kill_count: those are owned by UpdateStreamingMeta
-// during the live session and by the stats backfill worker after conversion.
-// Overwriting them here would clobber live counts and force a redundant backfill
-// pass on a row that is already complete.
+// Update writes the streaming-finalize mutable fields for an existing operation.
+// Stats columns (player_count, kill_count, side_composition, player_kill_count)
+// are owned by UpdateStreamingMeta / UpdateOperationStats and not touched here.
 func (r *RepoOperation) Update(ctx context.Context, op *Operation) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE operations SET

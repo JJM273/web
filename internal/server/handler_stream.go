@@ -412,12 +412,8 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2Outp
 		}
 	}
 
-	// Populate operation stats from the in-memory session. The async backfill
-	// worker would otherwise be the source of truth, but it queries
-	// `player_count = 0` to find candidates — and UpdateStreamingMeta has
-	// already written a non-zero player_count for any session with telemetry,
-	// so backfill would skip this row and leave kill_count / side_composition
-	// at zero forever. Writing them here makes finalize the source of truth.
+	// Finalize owns stats: backfill skips rows where player_count != 0, and
+	// UpdateStreamingMeta has already set it from telemetry.
 	stats := session.Stats()
 	sideComp := make(SideComposition, len(stats.Sides))
 	for side, sc := range stats.Sides {

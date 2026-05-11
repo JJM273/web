@@ -284,8 +284,6 @@ func eventToProto(rec eventRecord) *pbv2.Event {
 				Name:    rec.eventType,
 				Message: rec.general.Message,
 			}
-			// Carry structured ExtraData for sector capture events
-			// (captured / contested / capturedFlag). Matches v1 #329.
 			if v, ok := rec.general.ExtraData["objectType"].(string); ok {
 				ge.ObjectType = v
 			}

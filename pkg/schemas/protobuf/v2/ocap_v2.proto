@@ -291,8 +291,7 @@ message PlayerNetworkData {
 message GeneralEvent {
   string name = 1;
   string message = 2;
-  // Typed ExtraData fields for sector capture events (captured/contested/capturedFlag).
-  // Mirrors v1 protobuf Event fields added in #329.
+  // Populated for captured/contested/capturedFlag from core.GeneralEvent.ExtraData.
   string object_type = 3;
   string unit_name = 4;
   string side = 5;

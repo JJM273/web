@@ -2649,8 +2649,7 @@ type GeneralEvent struct {
 	state   protoimpl.MessageState `protogen:"open.v1"`
 	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
-	// Typed ExtraData fields for sector capture events (captured/contested/capturedFlag).
-	// Mirrors v1 protobuf Event fields added in #329.
+	// Populated for captured/contested/capturedFlag from core.GeneralEvent.ExtraData.
 	ObjectType    string `protobuf:"bytes,3,opt,name=object_type,json=objectType,proto3" json:"object_type,omitempty"`
 	UnitName      string `protobuf:"bytes,4,opt,name=unit_name,json=unitName,proto3" json:"unit_name,omitempty"`
 	Side          string `protobuf:"bytes,5,opt,name=side,proto3" json:"side,omitempty"`

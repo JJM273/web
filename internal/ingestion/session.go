@@ -91,16 +91,12 @@ func (s *Session) World() *core.World { return s.world }
 // FrameCount returns the number of frames accumulated.
 func (s *Session) FrameCount() uint { return s.frameCount }
 
-// SideStats is a per-side breakdown of unit, player, and death counts.
 type SideStats struct {
 	Players int
 	Units   int
 	Dead    int
 }
 
-// SessionStats summarizes the recording at finalize time so the operation
-// row gets accurate stats without waiting for the backfill worker (which
-// re-reads the file from disk and doesn't yet understand v2 manifests).
 type SessionStats struct {
 	PlayerCount     int
 	KillCount       int
@@ -109,8 +105,7 @@ type SessionStats struct {
 }
 
 // Stats derives final operation stats from accumulated session state.
-// Mirrors conversion.computeStats but operates directly on in-memory records.
-// Players are deduplicated by Soldier.Name to handle respawn / JIP cases.
+// Players are deduplicated by name to handle respawn / JIP.
 func (s *Session) Stats() SessionStats {
 	stats := SessionStats{Sides: make(map[string]SideStats)}
 
@@ -178,8 +173,7 @@ func normalizeSide(s string) string {
 	return strings.ToUpper(strings.TrimSpace(s))
 }
 
-// capturedDataArray builds the v1 JSON payload for "captured"/"contested" events:
-// [objectType, unitName, side, [posX, posY, posZ]?] — the shape parser_v1.go expects.
+// [objectType, unitName, side, [posX, posY, posZ]?]
 func capturedDataArray(ge *core.GeneralEvent) []any {
 	parts := []any{
 		stringFromExtra(ge.ExtraData, "objectType"),
@@ -192,8 +186,7 @@ func capturedDataArray(ge *core.GeneralEvent) []any {
 	return parts
 }
 
-// capturedFlagDataArray builds the v1 JSON payload for "capturedFlag" events:
-// [unitName, unitSide, flagSide] — only unitName is parsed by parser_v1.go.
+// [unitName, unitSide, flagSide]
 func capturedFlagDataArray(ge *core.GeneralEvent) []any {
 	return []any{
 		stringFromExtra(ge.ExtraData, "unitName"),
@@ -804,10 +797,6 @@ func (s *Session) eventsToV1() []any {
 			})
 
 		default:
-			// generalEvent, captured/contested/capturedFlag, chat, and other event types.
-			// captured/contested/capturedFlag carry structured ExtraData (object_type,
-			// unit_name, side, optional position) that parser_v1.go expects as a
-			// nested array — emitting just the Message string loses these fields.
 			if e.general != nil {
 				switch e.eventType {
 				case "captured", "contested":
