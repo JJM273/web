@@ -207,6 +207,24 @@ function convertEvent(pb: PbEvent): EventDef | null {
     return null;
   }
   if (pb.general) {
+    const name = pb.general.name;
+    if (name === "captured" || name === "contested") {
+      return {
+        frameNum,
+        type: name,
+        objectType: pb.general.objectType || "",
+        unitName: pb.general.unitName || "",
+        side: pb.general.side || undefined,
+      };
+    }
+    if (name === "capturedFlag") {
+      return {
+        frameNum,
+        type: "capturedFlag",
+        objectType: pb.general.objectType || "flag",
+        unitName: pb.general.unitName || "",
+      };
+    }
     return {
       frameNum,
       type: "generalEvent",

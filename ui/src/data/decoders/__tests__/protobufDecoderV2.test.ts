@@ -222,6 +222,49 @@ describe("ProtobufDecoderV2.decodeManifest", () => {
     }
   });
 
+  it("decodes captured/contested sector events with typed fields", () => {
+    const buffer = encodePb(PbManifest, {
+      version: 2,
+      world: { worldName: "Altis" },
+      mission: { missionName: "Op" },
+      frameCount: 500,
+      chunkSize: 300,
+      captureDelayMs: 1000,
+      chunkCount: 2,
+      events: [
+        { frameNum: 100, general: { name: "captured", objectType: "Sector_A", unitName: "Squad 1", side: "WEST" } },
+        { frameNum: 200, general: { name: "contested", objectType: "Sector_B", unitName: "Squad 2", side: "EAST" } },
+        { frameNum: 300, general: { name: "capturedFlag", objectType: "flag", unitName: "Player1" } },
+      ],
+    });
+
+    const manifest = decoder.decodeManifest(buffer);
+    expect(manifest.events).toHaveLength(3);
+
+    const captured = manifest.events[0];
+    expect(captured.type).toBe("captured");
+    if (captured.type === "captured") {
+      expect(captured.objectType).toBe("Sector_A");
+      expect(captured.unitName).toBe("Squad 1");
+      expect(captured.side).toBe("WEST");
+    }
+
+    const contested = manifest.events[1];
+    expect(contested.type).toBe("contested");
+    if (contested.type === "contested") {
+      expect(contested.objectType).toBe("Sector_B");
+      expect(contested.unitName).toBe("Squad 2");
+      expect(contested.side).toBe("EAST");
+    }
+
+    const flag = manifest.events[2];
+    expect(flag.type).toBe("capturedFlag");
+    if (flag.type === "capturedFlag") {
+      expect(flag.objectType).toBe("flag");
+      expect(flag.unitName).toBe("Player1");
+    }
+  });
+
   it("decodes time samples", () => {
     const buffer = encodePb(PbManifest, {
       version: 2,

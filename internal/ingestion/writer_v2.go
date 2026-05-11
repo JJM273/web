@@ -280,10 +280,22 @@ func eventToProto(rec eventRecord) *pbv2.Event {
 
 	default:
 		if rec.general != nil {
-			evt.Event = &pbv2.Event_General{General: &pbv2.GeneralEvent{
+			ge := &pbv2.GeneralEvent{
 				Name:    rec.eventType,
 				Message: rec.general.Message,
-			}}
+			}
+			// Carry structured ExtraData for sector capture events
+			// (captured / contested / capturedFlag). Matches v1 #329.
+			if v, ok := rec.general.ExtraData["objectType"].(string); ok {
+				ge.ObjectType = v
+			}
+			if v, ok := rec.general.ExtraData["unitName"].(string); ok {
+				ge.UnitName = v
+			}
+			if v, ok := rec.general.ExtraData["side"].(string); ok {
+				ge.Side = v
+			}
+			evt.Event = &pbv2.Event_General{General: ge}
 		} else {
 			return nil
 		}

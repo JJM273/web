@@ -93,6 +93,49 @@ func TestSession_Events(t *testing.T) {
 	assert.Len(t, s.events, 2)
 }
 
+func TestSession_Stats(t *testing.T) {
+	s := NewSession()
+
+	// 2 players on WEST, 1 unit on EAST, 1 player on EAST (different name)
+	s.HandleAddSoldier(core.Soldier{ID: 1, UnitName: "Alice", Side: "WEST", IsPlayer: true})
+	s.HandleAddSoldier(core.Soldier{ID: 2, UnitName: "Bob", Side: "WEST", IsPlayer: true})
+	s.HandleAddSoldier(core.Soldier{ID: 3, UnitName: "AI_1", Side: "EAST", IsPlayer: false})
+	s.HandleAddSoldier(core.Soldier{ID: 4, UnitName: "Charlie", Side: "EAST", IsPlayer: true})
+
+	// Respawn of Alice on WEST — should not double-count as a player
+	s.HandleAddSoldier(core.Soldier{ID: 5, UnitName: "Alice", Side: "WEST", IsPlayer: true})
+
+	// Player-on-player kill: Alice kills Charlie (PlayerKillCount=1)
+	s.HandleKillEvent(core.KillEvent{
+		CaptureFrame:    10,
+		KillerSoldierID: ptrUint(1),
+		VictimSoldierID: ptrUint(4),
+	})
+	// AI kill (KillCount only, not PlayerKill): AI_1 kills Bob
+	s.HandleKillEvent(core.KillEvent{
+		CaptureFrame:    20,
+		KillerSoldierID: ptrUint(3),
+		VictimSoldierID: ptrUint(2),
+	})
+
+	stats := s.Stats()
+	assert.Equal(t, 3, stats.PlayerCount, "Alice/Bob/Charlie — Alice respawn not double-counted")
+	assert.Equal(t, 2, stats.KillCount)
+	assert.Equal(t, 1, stats.PlayerKillCount)
+
+	west, ok := stats.Sides["WEST"]
+	require.True(t, ok)
+	assert.Equal(t, 2, west.Players, "Alice + Bob on WEST")
+	assert.Equal(t, 3, west.Units, "Alice + Bob + Alice-respawn count as 3 units")
+	assert.Equal(t, 1, west.Dead, "Bob killed")
+
+	east, ok := stats.Sides["EAST"]
+	require.True(t, ok)
+	assert.Equal(t, 1, east.Players, "Charlie")
+	assert.Equal(t, 2, east.Units, "AI_1 + Charlie")
+	assert.Equal(t, 1, east.Dead, "Charlie killed")
+}
+
 func TestSession_Markers(t *testing.T) {
 	s := NewSession()
 

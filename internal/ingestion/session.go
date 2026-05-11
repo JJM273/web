@@ -91,6 +91,136 @@ func (s *Session) World() *core.World { return s.world }
 // FrameCount returns the number of frames accumulated.
 func (s *Session) FrameCount() uint { return s.frameCount }
 
+// SideStats is a per-side breakdown of unit, player, and death counts.
+type SideStats struct {
+	Players int
+	Units   int
+	Dead    int
+}
+
+// SessionStats summarizes the recording at finalize time so the operation
+// row gets accurate stats without waiting for the backfill worker (which
+// re-reads the file from disk and doesn't yet understand v2 manifests).
+type SessionStats struct {
+	PlayerCount     int
+	KillCount       int
+	PlayerKillCount int
+	Sides           map[string]SideStats
+}
+
+// Stats derives final operation stats from accumulated session state.
+// Mirrors conversion.computeStats but operates directly on in-memory records.
+// Players are deduplicated by Soldier.Name to handle respawn / JIP cases.
+func (s *Session) Stats() SessionStats {
+	stats := SessionStats{Sides: make(map[string]SideStats)}
+
+	seenPlayer := make(map[string]bool)
+	seenPlayerSide := make(map[string]map[string]bool)
+	playerIDs := make(map[uint16]bool)
+	idIsPlayer := make(map[uint16]bool)
+
+	for id, rec := range s.soldiers {
+		side := normalizeSide(rec.Soldier.Side)
+		if rec.Soldier.IsPlayer {
+			idIsPlayer[id] = true
+			name := rec.Soldier.UnitName
+			if name == "" || !seenPlayer[name] {
+				seenPlayer[name] = true
+				stats.PlayerCount++
+			}
+			playerIDs[id] = true
+		}
+		if side != "" && side != "UNKNOWN" && side != "GLOBAL" {
+			sc := stats.Sides[side]
+			sc.Units++
+			if rec.Soldier.IsPlayer {
+				name := rec.Soldier.UnitName
+				if name == "" {
+					sc.Players++
+				} else {
+					if seenPlayerSide[name] == nil {
+						seenPlayerSide[name] = make(map[string]bool)
+					}
+					if !seenPlayerSide[name][side] {
+						seenPlayerSide[name][side] = true
+						sc.Players++
+					}
+				}
+			}
+			stats.Sides[side] = sc
+		}
+	}
+
+	for _, evt := range s.events {
+		if evt.kill == nil {
+			continue
+		}
+		stats.KillCount++
+		if evt.kill.KillerSoldierID != nil && idIsPlayer[uint16(*evt.kill.KillerSoldierID)] {
+			stats.PlayerKillCount++
+		}
+		if evt.kill.VictimSoldierID != nil {
+			vid := uint16(*evt.kill.VictimSoldierID)
+			if rec, ok := s.soldiers[vid]; ok {
+				side := normalizeSide(rec.Soldier.Side)
+				if side != "" && side != "UNKNOWN" && side != "GLOBAL" {
+					sc := stats.Sides[side]
+					sc.Dead++
+					stats.Sides[side] = sc
+				}
+			}
+		}
+	}
+	return stats
+}
+
+func normalizeSide(s string) string {
+	return strings.ToUpper(strings.TrimSpace(s))
+}
+
+// capturedDataArray builds the v1 JSON payload for "captured"/"contested" events:
+// [objectType, unitName, side, [posX, posY, posZ]?] — the shape parser_v1.go expects.
+func capturedDataArray(ge *core.GeneralEvent) []any {
+	parts := []any{
+		stringFromExtra(ge.ExtraData, "objectType"),
+		stringFromExtra(ge.ExtraData, "unitName"),
+		stringFromExtra(ge.ExtraData, "side"),
+	}
+	if pos, ok := positionFromExtra(ge.ExtraData, "position"); ok {
+		parts = append(parts, pos)
+	}
+	return parts
+}
+
+// capturedFlagDataArray builds the v1 JSON payload for "capturedFlag" events:
+// [unitName, unitSide, flagSide] — only unitName is parsed by parser_v1.go.
+func capturedFlagDataArray(ge *core.GeneralEvent) []any {
+	return []any{
+		stringFromExtra(ge.ExtraData, "unitName"),
+		stringFromExtra(ge.ExtraData, "unitSide"),
+		stringFromExtra(ge.ExtraData, "flagSide"),
+	}
+}
+
+func stringFromExtra(extra map[string]any, key string) string {
+	if v, ok := extra[key].(string); ok {
+		return v
+	}
+	return ""
+}
+
+func positionFromExtra(extra map[string]any, key string) ([]any, bool) {
+	v, ok := extra[key]
+	if !ok {
+		return nil, false
+	}
+	arr, ok := v.([]any)
+	if !ok || len(arr) < 2 {
+		return nil, false
+	}
+	return arr, true
+}
+
 // SetMission stores mission and world metadata from start_mission.
 func (s *Session) SetMission(mission *core.Mission, world *core.World) {
 	s.mission = mission
@@ -674,11 +804,27 @@ func (s *Session) eventsToV1() []any {
 			})
 
 		default:
-			// generalEvent, chat, and other event types
+			// generalEvent, captured/contested/capturedFlag, chat, and other event types.
+			// captured/contested/capturedFlag carry structured ExtraData (object_type,
+			// unit_name, side, optional position) that parser_v1.go expects as a
+			// nested array — emitting just the Message string loses these fields.
 			if e.general != nil {
-				events = append(events, []any{
-					e.general.CaptureFrame, e.eventType, e.general.Message,
-				})
+				switch e.eventType {
+				case "captured", "contested":
+					events = append(events, []any{
+						e.general.CaptureFrame, e.eventType,
+						capturedDataArray(e.general),
+					})
+				case "capturedFlag":
+					events = append(events, []any{
+						e.general.CaptureFrame, e.eventType,
+						capturedFlagDataArray(e.general),
+					})
+				default:
+					events = append(events, []any{
+						e.general.CaptureFrame, e.eventType, e.general.Message,
+					})
+				}
 			} else if e.chat != nil {
 				events = append(events, []any{
 					e.chat.CaptureFrame, "chat", e.chat.Message,

@@ -2646,9 +2646,14 @@ func (x *PlayerNetworkData) GetDesync() float32 {
 }
 
 type GeneralEvent struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
-	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	Name    string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Message string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	// Typed ExtraData fields for sector capture events (captured/contested/capturedFlag).
+	// Mirrors v1 protobuf Event fields added in #329.
+	ObjectType    string `protobuf:"bytes,3,opt,name=object_type,json=objectType,proto3" json:"object_type,omitempty"`
+	UnitName      string `protobuf:"bytes,4,opt,name=unit_name,json=unitName,proto3" json:"unit_name,omitempty"`
+	Side          string `protobuf:"bytes,5,opt,name=side,proto3" json:"side,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2693,6 +2698,27 @@ func (x *GeneralEvent) GetName() string {
 func (x *GeneralEvent) GetMessage() string {
 	if x != nil {
 		return x.Message
+	}
+	return ""
+}
+
+func (x *GeneralEvent) GetObjectType() string {
+	if x != nil {
+		return x.ObjectType
+	}
+	return ""
+}
+
+func (x *GeneralEvent) GetUnitName() string {
+	if x != nil {
+		return x.UnitName
+	}
+	return ""
+}
+
+func (x *GeneralEvent) GetSide() string {
+	if x != nil {
+		return x.Side
 	}
 	return ""
 }
@@ -3856,10 +3882,14 @@ const file_ocap_v2_proto_rawDesc = "" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x12\n" +
 	"\x04ping\x18\x03 \x01(\x02R\x04ping\x12\x0e\n" +
 	"\x02bw\x18\x04 \x01(\x02R\x02bw\x12\x16\n" +
-	"\x06desync\x18\x05 \x01(\x02R\x06desync\"<\n" +
+	"\x06desync\x18\x05 \x01(\x02R\x06desync\"\x8e\x01\n" +
 	"\fGeneralEvent\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"J\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1f\n" +
+	"\vobject_type\x18\x03 \x01(\tR\n" +
+	"objectType\x12\x1b\n" +
+	"\tunit_name\x18\x04 \x01(\tR\bunitName\x12\x12\n" +
+	"\x04side\x18\x05 \x01(\tR\x04side\"J\n" +
 	"\fConnectEvent\x12\x1b\n" +
 	"\tunit_name\x18\x01 \x01(\tR\bunitName\x12\x1d\n" +
 	"\n" +

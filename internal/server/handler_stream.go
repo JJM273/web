@@ -412,6 +412,22 @@ func (h *Handler) finalizeSession(session *ingestion.Session, tag string, v2Outp
 		}
 	}
 
+	// Populate operation stats from the in-memory session. The async backfill
+	// worker would otherwise be the source of truth, but it queries
+	// `player_count = 0` to find candidates — and UpdateStreamingMeta has
+	// already written a non-zero player_count for any session with telemetry,
+	// so backfill would skip this row and leave kill_count / side_composition
+	// at zero forever. Writing them here makes finalize the source of truth.
+	stats := session.Stats()
+	sideComp := make(SideComposition, len(stats.Sides))
+	for side, sc := range stats.Sides {
+		sideComp[side] = SideCounts{Players: sc.Players, Units: sc.Units, Dead: sc.Dead}
+	}
+	if err := h.repoOperation.UpdateOperationStats(ctx, op.ID,
+		stats.PlayerCount, stats.KillCount, stats.PlayerKillCount, sideComp); err != nil {
+		slog.Warn("stream: failed to update operation stats", "error", err)
+	}
+
 	slog.Info("stream: finalized",
 		"id", op.ID,
 		"filename", filename,
