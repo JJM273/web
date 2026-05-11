@@ -145,18 +145,22 @@ func NewHandler(
 	fuego.Get(g, "/api/healthcheck", hdlr.GetHealthcheck, fuego.OptionTags("Health"))
 	fuego.Get(g, "/api/version", hdlr.GetVersion, fuego.OptionTags("Health"))
 
-	// Recordings (public read)
-	fuego.Get(g, "/api/v1/operations", hdlr.GetOperations, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/operations/{id}", hdlr.GetOperation, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/operations/{id}/marker-blacklist", hdlr.GetMarkerBlacklist, fuego.OptionTags("Recordings"))
+	// Public recording endpoints (own auth or needed before login)
 	fuego.PostStd(g, "/api/v1/operations/add", hdlr.StoreOperation, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/worlds", hdlr.GetWorlds, fuego.OptionTags("Recordings"))
 	fuego.Get(g, "/api/v1/customize", hdlr.GetCustomize, fuego.OptionTags("Recordings"))
 	fuego.GetStd(g, "/api/v1/stream", hdlr.HandleStream, fuego.OptionTags("Recordings"))
 
+	// Viewer-gated endpoints (require valid JWT in non-public modes)
+	viewer := fuego.Group(g, "")
+	fuego.Use(viewer, hdlr.requireViewer)
+	fuego.Get(viewer, "/api/v1/operations", hdlr.GetOperations, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}", hdlr.GetOperation, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}/marker-blacklist", hdlr.GetMarkerBlacklist, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/worlds", hdlr.GetWorlds, fuego.OptionTags("Recordings"))
+
 	// Assets (static file serving)
 	cacheMiddleware := hdlr.cacheControl(CacheDuration)
-	fuego.GetStd(g, "/data/{path...}", hdlr.GetData, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(viewer, "/data/{path...}", hdlr.GetData, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/markers/{name}/{color}", hdlr.GetMarker, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/markers/magicons/{name}", hdlr.GetAmmo, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/maps/fonts/{fontstack}/{range}", hdlr.GetFont, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
@@ -164,8 +168,10 @@ func NewHandler(
 	fuego.GetStd(g, "/images/maps/{path...}", hdlr.GetMapTile, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 
 	// Auth
+	fuego.Get(g, "/api/v1/auth/config", hdlr.GetAuthConfig, fuego.OptionTags("Auth"))
 	fuego.GetStd(g, "/api/v1/auth/steam", hdlr.SteamLogin, fuego.OptionTags("Auth"))
 	fuego.GetStd(g, "/api/v1/auth/steam/callback", hdlr.SteamCallback, fuego.OptionTags("Auth"))
+	fuego.PostStd(g, "/api/v1/auth/password", hdlr.PasswordLogin, fuego.OptionTags("Auth"))
 	fuego.Get(g, "/api/v1/auth/me", hdlr.GetMe, fuego.OptionTags("Auth"))
 	fuego.Post(g, "/api/v1/auth/logout", hdlr.Logout, fuego.OptionTags("Auth"), fuego.OptionSecurity(bearerAuth))
 
@@ -177,6 +183,10 @@ func NewHandler(
 	fuego.Post(admin, "/api/v1/operations/{id}/retry", hdlr.RetryConversion, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Put(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.AddMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Delete(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.RemoveMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/admin-config", hdlr.GetAdminAuthConfig, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/allowlist", hdlr.GetAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Put(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.AddToAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Delete(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.RemoveFromAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 
 	// MapTool (require admin JWT; SSE endpoint handles its own auth via query param)
 	if hdlr.maptoolMgr != nil {

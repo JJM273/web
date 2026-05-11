@@ -10,7 +10,7 @@ import { useAuth } from "../../hooks/useAuth";
 import { useClickOutside } from "../../hooks/useClickOutside";
 import { LOCALES } from "../../i18n/i18n";
 import { LOCALE_LABELS } from "./constants";
-import { GlobeIcon, UsersIcon, CrosshairIcon, ChevronDownIcon, UploadIcon, SearchIcon, TagIcon, MapIcon, XIcon, GitHubIcon, ExternalLinkIcon, HeartIcon, AlertTriangleIcon, BookOpenIcon } from "../../components/Icons";
+import { GlobeIcon, UsersIcon, CrosshairIcon, ChevronDownIcon, UploadIcon, SearchIcon, TagIcon, MapIcon, XIcon, GitHubIcon, ExternalLinkIcon, HeartIcon, AlertTriangleIcon, BookOpenIcon, ShieldCheckIcon } from "../../components/Icons";
 import { AuthBadge } from "../../components/AuthBadge";
 import { getMapColor, isRecordingReady, stripRecordingExtension } from "./helpers";
 import { StatPill, TagBadge, SortHeader } from "./components";
@@ -52,28 +52,36 @@ export function RecordingSelector(): JSX.Element {
   let searchRef: HTMLInputElement | undefined;
   let scrollRef: HTMLDivElement | undefined;
 
-  // Fetch recordings
-  onMount(async () => {
+  // Refetch recordings + worlds whenever the auth state changes (login,
+  // logout, initial getMe resolving). Tracking authenticated() ties the
+  // effect to the signal; the empty initial run still fires on mount.
+  createEffect(() => {
+    void authenticated();
     setLoading(true);
-    try {
-      const [recs, info, worlds] = await Promise.all([
-        api.getRecordings(),
-        api.getVersion().catch(() => null),
-        api.getWorlds().catch(() => []),
-      ]);
-      setRecordings(recs.reverse());
-      if (info) setBuildInfo(info);
-      const lookup = new Map<string, string>();
-      for (const w of worlds) {
-        lookup.set(w.name, w.displayName);
-      }
-      setWorldNames(lookup);
-    } catch {
-      setRecordings([]);
-    } finally {
-      setLoading(false);
-    }
-    api.getMapToolTools().then(() => setMapToolEnabled(true)).catch(() => { });
+    void Promise.all([
+      api.getRecordings(),
+      api.getVersion().catch(() => null),
+      api.getWorlds().catch(() => []),
+    ])
+      .then(([recs, info, worlds]) => {
+        setRecordings(recs.reverse());
+        if (info) setBuildInfo(info);
+        const lookup = new Map<string, string>();
+        for (const w of worlds) {
+          lookup.set(w.name, w.displayName);
+        }
+        setWorldNames(lookup);
+      })
+      .catch(() => {
+        setRecordings([]);
+        setWorldNames(new Map());
+      })
+      .finally(() => setLoading(false));
+  });
+
+  createEffect(() => {
+    void authenticated();
+    api.getMapToolTools().then(() => setMapToolEnabled(true)).catch(() => setMapToolEnabled(false));
   });
 
   // Keyboard shortcuts
@@ -361,6 +369,13 @@ export function RecordingSelector(): JSX.Element {
               <div class={styles.adminArea}>
                 <AuthBadge />
                 <Show when={isAdmin()}>
+                  <button
+                    class={styles.adminIconButton}
+                    onClick={() => navigate("/admin")}
+                    title={t("admin_icon_button_tooltip")}
+                  >
+                    <ShieldCheckIcon />
+                  </button>
                   <a
                     class={styles.adminIconButton}
                     href={`${basePath}swagger/`}

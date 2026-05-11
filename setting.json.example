@@ -33,9 +33,11 @@
 		"pingTimeout": "10s"
 	},
 	"auth": {
+		"mode": "public",
 		"sessionTTL": "24h",
 		"adminSteamIds": [],
-		"steamApiKey": ""
+		"steamApiKey": "",
+		"password": ""
 	},
 	"httpServer": {
 		"readTimeout": "120s",

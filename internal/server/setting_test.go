@@ -508,3 +508,88 @@ func TestNewSetting_NoConfigFile(t *testing.T) {
 	_, err := NewSetting()
 	assert.Error(t, err)
 }
+
+func TestValidateAuthConfig(t *testing.T) {
+	t.Run("valid modes accepted", func(t *testing.T) {
+		for _, mode := range []string{"public", "steam", "steamAllowlist"} {
+			err := validateAuthConfig(Auth{Mode: mode})
+			assert.NoError(t, err, "mode %q should be valid", mode)
+		}
+		err := validateAuthConfig(Auth{Mode: "password", Password: "secret"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid mode returns error", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "bogus"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+		assert.Contains(t, err.Error(), "not valid")
+	})
+
+	t.Run("password mode without password", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "password"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "auth.password")
+	})
+
+	t.Run("removed modes are rejected", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "steamGroup"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+
+		err = validateAuthConfig(Auth{Mode: "squadXml"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+	})
+}
+
+func TestNewSetting_AuthModeDefault(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{"secret": "test-secret-value"}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "public", setting.Auth.Mode)
+}
+
+func TestNewSetting_AuthModeInvalid(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "invalid"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	_, err = NewSetting()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid")
+}
+
+func TestNewSetting_AuthPasswordMode(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "password", "password": "hunter2"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "password", setting.Auth.Mode)
+	assert.Equal(t, "hunter2", setting.Auth.Password)
+}

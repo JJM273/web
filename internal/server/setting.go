@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,9 +52,11 @@ type Customize struct {
 }
 
 type Auth struct {
+	Mode          string        `json:"mode" yaml:"mode"`
 	SessionTTL    time.Duration `json:"sessionTTL" yaml:"sessionTTL"`
 	AdminSteamIDs []string      `json:"adminSteamIds" yaml:"adminSteamIds"`
 	SteamAPIKey   string        `json:"steamApiKey" yaml:"steamApiKey"`
+	Password      string        `json:"password" yaml:"password"`
 }
 
 type Streaming struct {
@@ -117,6 +120,8 @@ func NewSetting() (setting Setting, err error) {
 	viper.SetDefault("auth.sessionTTL", "24h")
 	viper.SetDefault("auth.adminSteamIds", []string{})
 	viper.SetDefault("auth.steamApiKey", "")
+	viper.SetDefault("auth.mode", "public")
+	viper.SetDefault("auth.password", "")
 
 	viper.SetDefault("cors.allowedOrigins", []string{})
 	viper.SetDefault("httpServer.readTimeout", "120s")
@@ -132,6 +137,10 @@ func NewSetting() (setting Setting, err error) {
 	}
 
 	if err = viper.Unmarshal(&setting); err != nil {
+		return
+	}
+
+	if err = validateAuthConfig(setting.Auth); err != nil {
 		return
 	}
 
@@ -161,4 +170,18 @@ func NewSetting() (setting Setting, err error) {
 	}
 
 	return
+}
+
+func validateAuthConfig(auth Auth) error {
+	validModes := []string{"public", "password", "steam", "steamAllowlist"}
+	if !slices.Contains(validModes, auth.Mode) {
+		return fmt.Errorf("auth.mode %q is not valid, must be one of: %s", auth.Mode, strings.Join(validModes, ", "))
+	}
+	switch auth.Mode {
+	case "password":
+		if auth.Password == "" {
+			return fmt.Errorf("auth.mode %q requires auth.password to be set", auth.Mode)
+		}
+	}
+	return nil
 }
