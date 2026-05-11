@@ -9,8 +9,6 @@ import type {
   BriefingMarkerState,
   LineHandle,
   LineOpts,
-  PulseHandle,
-  PulseOpts,
   RenderLayer,
   MapStyleInfo,
   RendererEvent,
@@ -45,20 +43,31 @@ export interface MapRenderer {
   addLine(from: ArmaCoord, to: ArmaCoord, opts: LineOpts): LineHandle;
   removeLine(handle: LineHandle): void;
 
-  // Pulse effects
-  addPulse(pos: ArmaCoord, opts: PulseOpts): PulseHandle;
-  removePulse(handle: PulseHandle): void;
-
-  // Layer visibility
+  // Layer visibility (signal accessors)
+  layerVisibility: () => Record<string, boolean>;
   setLayerVisible(layer: RenderLayer, visible: boolean): void;
 
-  // Map styles
-  getMapStyles(): MapStyleInfo[];
-  getActiveStyleIndex(): number;
+  // Marker display mode (signal accessor)
+  markerDisplayMode: () => "all" | "noLabels" | "none";
+  setMarkerDisplayMode(mode: "all" | "noLabels" | "none"): void;
+
+  // Map styles (signal accessors)
+  mapStyles: () => MapStyleInfo[];
+  activeStyleIndex: () => number;
   setMapStyle(index: number): void;
 
   // Settings
-  setSmoothingEnabled(enabled: boolean): void;
+  /**
+   * Enable or disable sub-frame smoothing.
+   *
+   * `frameIntervalSec` is the wall-clock duration between consecutive
+   * position updates (i.e. `captureDelayMs / 1000 / playbackSpeed`). The
+   * renderer sizes its tween to that interval so positions reach their
+   * target before the next update arrives — otherwise lag accumulates and
+   * fast markers (e.g. projectiles) appear to step.
+   */
+  setSmoothingEnabled(enabled: boolean, frameIntervalSec?: number): void;
+  nameDisplayMode: () => "players" | "all" | "none";
   setNameDisplayMode(mode: "players" | "all" | "none"): void;
 
   // Events

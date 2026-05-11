@@ -3,6 +3,7 @@ import type { Side, AliveState } from "../data/types";
 
 // --------------- Opaque handle types ---------------
 
+/* eslint-disable @typescript-eslint/no-unused-vars -- brand symbols are used only via typeof */
 declare const markerBrand: unique symbol;
 /** Opaque handle returned by createEntityMarker. */
 export type MarkerHandle = { readonly _brand: typeof markerBrand; _internal: unknown };
@@ -18,18 +19,26 @@ declare const lineBrand: unique symbol;
 /** Opaque handle returned by addLine. */
 export type LineHandle = { readonly _brand: typeof lineBrand; _internal: unknown };
 
-declare const pulseBrand: unique symbol;
-/** Opaque handle returned by addPulse. */
-export type PulseHandle = { readonly _brand: typeof pulseBrand; _internal: unknown };
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 // --------------- Entity markers ---------------
 
+/** Crew info for vehicles — renderer decides how to display. */
+export interface CrewInfo {
+  /** Total crew count (players + AI). */
+  count: number;
+  /** Player crew member names only. */
+  names: string[];
+}
+
 export interface EntityMarkerOpts {
   position: ArmaCoord;
+  direction: number;
   iconType: string;
   side: Side | null;
   name: string;
   isPlayer: boolean;
+  crew?: CrewInfo;
 }
 
 export interface EntityMarkerState {
@@ -43,6 +52,7 @@ export interface EntityMarkerState {
   isInVehicle: boolean;
   /** When true, show the "hit" flash icon instead of the normal side icon. */
   hit?: boolean;
+  crew?: CrewInfo;
 }
 
 // --------------- Briefing markers ---------------
@@ -66,19 +76,12 @@ export interface BriefingMarkerState {
   points?: ArmaCoord[];
 }
 
-// --------------- Lines & pulses ---------------
+// --------------- Lines ---------------
 
 export interface LineOpts {
   color: string;
   weight: number;
   opacity: number;
-}
-
-export interface PulseOpts {
-  color: string;
-  fillColor: string;
-  iconSize: [number, number];
-  iterationCount?: number;
 }
 
 // --------------- Enums & config ---------------

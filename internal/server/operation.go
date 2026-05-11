@@ -7,6 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -19,6 +23,10 @@ const (
 	ConversionStatusCompleted  = "completed"
 	ConversionStatusFailed     = "failed"
 )
+
+// operationColumns is the canonical SELECT column list for the operations table.
+// Every query that feeds into scan() must use this exact list.
+const operationColumns = `id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count, focus_start, focus_end`
 
 // SideCounts holds per-side breakdown of units, players, casualties, and kills.
 type SideCounts struct {
@@ -47,6 +55,8 @@ type Operation struct {
 	KillCount        int             `json:"kill_count"`
 	SideComposition  SideComposition `json:"side_composition"`
 	PlayerKillCount  int             `json:"player_kill_count"`
+	FocusStart       *int64          `json:"focusStart"`
+	FocusEnd         *int64          `json:"focusEnd"`
 }
 
 type Filter struct {
@@ -57,17 +67,26 @@ type Filter struct {
 }
 
 type RepoOperation struct {
-	db *sql.DB
+	db      *sql.DB
+	dataDir string
 }
 
 func NewRepoOperation(pathDB string) (*RepoOperation, error) {
+	return NewRepoOperationWithDataDir(pathDB, "")
+}
+
+// NewRepoOperationWithDataDir opens the operation repository and runs migrations,
+// including filesystem migrations that rename mission data files/directories
+// under dataDir. If dataDir is empty, filesystem migrations are skipped.
+func NewRepoOperationWithDataDir(pathDB, dataDir string) (*RepoOperation, error) {
 	db, err := sql.Open("sqlite3", pathDB)
 	if err != nil {
 		return nil, err
 	}
 
 	r := &RepoOperation{
-		db: db,
+		db:      db,
+		dataDir: dataDir,
 	}
 
 	if err := r.migration(); err != nil {
@@ -80,6 +99,7 @@ func NewRepoOperation(pathDB string) (*RepoOperation, error) {
 // runMigration executes a set of SQL statements atomically within a transaction,
 // then records the new version number.
 func (r *RepoOperation) runMigration(version int, statements ...string) error {
+	slog.Info("running database migration", "version", version)
 	tx, err := r.db.Begin()
 	if err != nil {
 		return fmt.Errorf("begin v%d migration: %w", version, err)
@@ -96,7 +116,11 @@ func (r *RepoOperation) runMigration(version int, statements ...string) error {
 		return fmt.Errorf("v%d set version: %w", version, err)
 	}
 
-	return tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+	slog.Info("database migration completed", "version", version)
+	return nil
 }
 
 func (r *RepoOperation) migration() (err error) {
@@ -127,6 +151,7 @@ func (r *RepoOperation) migration() (err error) {
 	} else if err != nil {
 		return err
 	}
+	slog.Info("database schema", "currentVersion", version)
 
 	if version < 1 {
 		if err = r.runMigration(1,
@@ -190,7 +215,183 @@ func (r *RepoOperation) migration() (err error) {
 		}
 	}
 
+	if version < 8 {
+		if err = r.runMigration(8,
+			`CREATE TABLE IF NOT EXISTS marker_blacklist (
+				operation_id INTEGER NOT NULL,
+				player_entity_id INTEGER NOT NULL,
+				PRIMARY KEY (operation_id, player_entity_id)
+			)`,
+		); err != nil {
+			return err
+		}
+	}
+
+	if version < 9 {
+		if err = r.runMigration(9,
+			`ALTER TABLE operations ADD COLUMN focus_start INTEGER DEFAULT NULL`,
+			`ALTER TABLE operations ADD COLUMN focus_end INTEGER DEFAULT NULL`,
+		); err != nil {
+			return err
+		}
+	}
+
+	if version < 10 {
+		if err = r.runMigration(10,
+			`UPDATE operations SET world_name = LOWER(world_name) WHERE world_name != LOWER(world_name)`,
+		); err != nil {
+			return err
+		}
+	}
+
+	if version < 11 {
+		if err = r.migrateDecodeFilenames(11); err != nil {
+			return err
+		}
+	}
+
+	if version < 12 {
+		if err = r.runMigration(12,
+			`CREATE TABLE IF NOT EXISTS steam_allowlist (
+				steam_id TEXT NOT NULL PRIMARY KEY
+			)`,
+		); err != nil {
+			return err
+		}
+	}
+
 	return nil
+}
+
+// decodeFilename returns the URL-decoded form of name if it contains percent
+// escapes that decode to a different string; otherwise it returns name
+// unchanged. It is used both by the upload handler (to sanitize incoming
+// filenames) and by migration 11 (to repair already-stored ones).
+func decodeFilename(name string) string {
+	if !strings.Contains(name, "%") {
+		return name
+	}
+	decoded, err := url.PathUnescape(name)
+	if err != nil {
+		return name
+	}
+	return decoded
+}
+
+// migrateDecodeFilenames URL-decodes filenames stored in the operations table
+// and renames the corresponding `<filename>.json.gz` file and `<filename>/`
+// directory (created by streaming/converted recordings) under the data
+// directory. URL-encoded names like
+// `Tavern%20WW2%20-%20Japanese%20Invasion%20of%20Nanjing%20V2_...`
+// were leaking through the upload path; this migration repairs existing
+// records and storage so the names match what the addon actually sends.
+func (r *RepoOperation) migrateDecodeFilenames(version int) error {
+	slog.Info("running database migration", "version", version)
+
+	rows, err := r.db.Query(`SELECT id, filename FROM operations WHERE filename LIKE '%\%%' ESCAPE '\'`)
+	if err != nil {
+		return fmt.Errorf("v%d query: %w", version, err)
+	}
+
+	type rename struct {
+		id       int64
+		oldName  string
+		newName  string
+	}
+	var renames []rename
+	for rows.Next() {
+		var id int64
+		var oldName string
+		if err := rows.Scan(&id, &oldName); err != nil {
+			rows.Close()
+			return fmt.Errorf("v%d scan: %w", version, err)
+		}
+		newName := decodeFilename(oldName)
+		if newName == oldName {
+			continue
+		}
+		renames = append(renames, rename{id: id, oldName: oldName, newName: newName})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("v%d rows: %w", version, err)
+	}
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin v%d migration: %w", version, err)
+	}
+	defer tx.Rollback()
+
+	for _, rn := range renames {
+		// Skip if another row already has the decoded name (would collide).
+		var existingID int64
+		err := tx.QueryRow(`SELECT id FROM operations WHERE filename = ? AND id != ?`, rn.newName, rn.id).Scan(&existingID)
+		if err == nil {
+			slog.Warn("v11 skipping rename: target filename already exists in DB",
+				"id", rn.id, "old", rn.oldName, "new", rn.newName, "existing_id", existingID)
+			continue
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("v%d collision check: %w", version, err)
+		}
+
+		if r.dataDir != "" {
+			if err := renameMissionPaths(r.dataDir, rn.oldName, rn.newName); err != nil {
+				return fmt.Errorf("v%d rename %q -> %q: %w", version, rn.oldName, rn.newName, err)
+			}
+		}
+
+		if _, err := tx.Exec(`UPDATE operations SET filename = ? WHERE id = ?`, rn.newName, rn.id); err != nil {
+			return fmt.Errorf("v%d update id %d: %w", version, rn.id, err)
+		}
+		slog.Info("v11 renamed recording", "id", rn.id, "old", rn.oldName, "new", rn.newName)
+	}
+
+	if _, err := tx.Exec(`INSERT INTO version (db) VALUES (?)`, version); err != nil {
+		return fmt.Errorf("v%d set version: %w", version, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	slog.Info("database migration completed", "version", version, "renamed", len(renames))
+	return nil
+}
+
+// renameMissionPaths renames `<dataDir>/<old>.json.gz` -> `<dataDir>/<new>.json.gz`
+// and `<dataDir>/<old>/` -> `<dataDir>/<new>/`. Missing source paths are not
+// errors. If a destination already exists, the rename is skipped with a
+// warning to avoid clobbering data.
+func renameMissionPaths(dataDir, oldName, newName string) error {
+	oldGz := filepath.Join(dataDir, oldName+".json.gz")
+	newGz := filepath.Join(dataDir, newName+".json.gz")
+	if err := safeRename(oldGz, newGz); err != nil {
+		return err
+	}
+
+	oldDir := filepath.Join(dataDir, oldName)
+	newDir := filepath.Join(dataDir, newName)
+	if err := safeRename(oldDir, newDir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func safeRename(oldPath, newPath string) error {
+	srcInfo, err := os.Lstat(oldPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if _, err := os.Lstat(newPath); err == nil {
+		slog.Warn("rename target already exists, skipping",
+			"old", oldPath, "new", newPath, "is_dir", srcInfo.IsDir())
+		return nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return os.Rename(oldPath, newPath)
 }
 
 func (r *RepoOperation) GetTypes(ctx context.Context) ([]string, error) {
@@ -218,6 +419,7 @@ func (r *RepoOperation) GetTypes(ctx context.Context) ([]string, error) {
 }
 
 func (r *RepoOperation) Store(ctx context.Context, operation *Operation) error {
+	operation.WorldName = strings.ToLower(operation.WorldName)
 	storageFormat := operation.StorageFormat
 	if storageFormat == "" {
 		storageFormat = "json"
@@ -235,9 +437,9 @@ func (r *RepoOperation) Store(ctx context.Context, operation *Operation) error {
 
 	query := `
 		INSERT INTO operations
-			(world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count)
+			(world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count, focus_start, focus_end)
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
 	`
 	result, err := r.db.ExecContext(
 		ctx,
@@ -256,6 +458,8 @@ func (r *RepoOperation) Store(ctx context.Context, operation *Operation) error {
 		operation.KillCount,
 		sideJSON,
 		operation.PlayerKillCount,
+		operation.FocusStart,
+		operation.FocusEnd,
 	)
 	if err != nil {
 		return err
@@ -284,7 +488,7 @@ func (r *RepoOperation) Select(ctx context.Context, filter Filter) ([]Operation,
 
 	query := `
 		SELECT
-			id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+			` + operationColumns + `
 		FROM
 			operations
 		WHERE
@@ -332,6 +536,8 @@ func (*RepoOperation) scan(ctx context.Context, rows *sql.Rows) ([]Operation, er
 			&o.KillCount,
 			&sideRaw,
 			&o.PlayerKillCount,
+			&o.FocusStart,
+			&o.FocusEnd,
 		)
 		if err != nil {
 			return nil, err
@@ -345,14 +551,14 @@ func (*RepoOperation) scan(ctx context.Context, rows *sql.Rows) ([]Operation, er
 // GetByID retrieves a single operation by its ID
 func (r *RepoOperation) GetByID(ctx context.Context, id string) (*Operation, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations WHERE id = ?`, id)
 
 	var op Operation
 	var sideRaw string
 	err := row.Scan(&op.ID, &op.WorldName, &op.MissionName, &op.MissionDuration,
 		&op.Filename, &op.Date, &op.Tag, &op.StorageFormat, &op.ConversionStatus, &op.SchemaVersion, &op.ChunkCount,
-		&op.PlayerCount, &op.KillCount, &sideRaw, &op.PlayerKillCount)
+		&op.PlayerCount, &op.KillCount, &sideRaw, &op.PlayerKillCount, &op.FocusStart, &op.FocusEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -363,14 +569,14 @@ func (r *RepoOperation) GetByID(ctx context.Context, id string) (*Operation, err
 // GetByFilename retrieves a single operation by its filename
 func (r *RepoOperation) GetByFilename(ctx context.Context, filename string) (*Operation, error) {
 	row := r.db.QueryRowContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations WHERE filename = ?`, filename)
 
 	var op Operation
 	var sideRaw string
 	err := row.Scan(&op.ID, &op.WorldName, &op.MissionName, &op.MissionDuration,
 		&op.Filename, &op.Date, &op.Tag, &op.StorageFormat, &op.ConversionStatus, &op.SchemaVersion, &op.ChunkCount,
-		&op.PlayerCount, &op.KillCount, &sideRaw, &op.PlayerKillCount)
+		&op.PlayerCount, &op.KillCount, &sideRaw, &op.PlayerKillCount, &op.FocusStart, &op.FocusEnd)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +587,7 @@ func (r *RepoOperation) GetByFilename(ctx context.Context, filename string) (*Op
 // SelectPending returns operations with pending conversion status
 func (r *RepoOperation) SelectPending(ctx context.Context, limit int) ([]Operation, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations
 		 WHERE conversion_status = 'pending'
 		 ORDER BY id ASC
@@ -397,7 +603,7 @@ func (r *RepoOperation) SelectPending(ctx context.Context, limit int) ([]Operati
 // SelectAll returns all operations for conversion
 func (r *RepoOperation) SelectAll(ctx context.Context) ([]Operation, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations
 		 ORDER BY id ASC`)
 	if err != nil {
@@ -411,7 +617,7 @@ func (r *RepoOperation) SelectAll(ctx context.Context) ([]Operation, error) {
 // SelectByStatus returns operations with a specific conversion status
 func (r *RepoOperation) SelectByStatus(ctx context.Context, status string) ([]Operation, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations
 		 WHERE conversion_status = ?
 		 ORDER BY id ASC`, status)
@@ -431,6 +637,30 @@ func (r *RepoOperation) ResetConversionStatus(ctx context.Context, fromStatus, t
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+// Delete removes an operation record from the database.
+func (r *RepoOperation) Delete(ctx context.Context, id int64) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM operations WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UpdateOperation updates the editable metadata fields of an operation.
+func (r *RepoOperation) UpdateOperation(ctx context.Context, id int64, missionName, tag, date string, focusStart, focusEnd *int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE operations SET mission_name = ?, tag = ?, date = ?, focus_start = ?, focus_end = ? WHERE id = ?`,
+		missionName, tag, date, focusStart, focusEnd, id)
+	return err
 }
 
 // UpdateConversionStatus updates the conversion status for an operation
@@ -538,7 +768,7 @@ func (r *RepoOperation) Update(ctx context.Context, op *Operation) error {
 // SelectStatsBackfill returns completed protobuf operations that have no stats yet
 func (r *RepoOperation) SelectStatsBackfill(ctx context.Context) ([]Operation, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, world_name, mission_name, mission_duration, filename, date, tag, storage_format, conversion_status, schema_version, chunk_count, player_count, kill_count, side_composition, player_kill_count
+		`SELECT ` + operationColumns + `
 		 FROM operations
 		 WHERE conversion_status = 'completed' AND player_count = 0
 		 ORDER BY id ASC`)

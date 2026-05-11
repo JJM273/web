@@ -1,0 +1,507 @@
+/* ─── StatusStrip ─── */
+
+.stripWrap {
+  position: relative;
+  margin-bottom: 12px;
+}
+
+.strip {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  overflow: hidden;
+}
+
+/* ── Tools button ── */
+
+.toolsBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.toolsBtn:hover,
+.toolsBtnActive {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* ── Status dot ── */
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotOk {
+  background: var(--accent-success);
+  box-shadow: 0 0 6px rgba(45, 212, 160, 0.3);
+}
+
+.dotErr {
+  background: var(--accent-danger);
+  box-shadow: 0 0 6px rgba(255, 74, 74, 0.3);
+}
+
+.dotPulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  animation: pulse 1.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.toolsLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+.toolsLabelOk {
+  color: var(--text-muted);
+}
+
+.toolsLabelErr {
+  color: var(--accent-danger);
+}
+
+.degradedLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--accent-warning);
+}
+
+.healthErrLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--accent-danger);
+}
+
+/* ── Active job section ── */
+
+.activeSection {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  min-width: 0;
+}
+
+.activeWorldName {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.stageBar {
+  flex: 1;
+  display: flex;
+  gap: 1px;
+  align-items: center;
+  min-width: 60px;
+}
+
+.segment {
+  flex: 1;
+  height: 3px;
+  border-radius: 1px;
+  position: relative;
+  overflow: hidden;
+  transition: background 0.3s;
+}
+
+.segmentDone {
+  background: var(--accent-success);
+}
+
+.segmentActive {
+  background: color-mix(in srgb, var(--accent-success) 25%, transparent);
+}
+
+.segmentPending {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.segmentShimmer {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent-success), transparent);
+  border-radius: 1px;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.activeStageLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--accent-primary);
+  white-space: nowrap;
+}
+
+.activeElapsed {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmest);
+  white-space: nowrap;
+}
+
+.activeIdle {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmest);
+}
+
+.cancelBtn {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 74, 74, 0.12);
+  background: rgba(255, 74, 74, 0.04);
+  cursor: pointer;
+  color: rgba(255, 107, 107, 0.47);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cancelBtn:hover {
+  background: rgba(255, 74, 74, 0.12);
+  color: var(--accent-danger);
+}
+
+/* ── Jobs button ── */
+
+.jobsBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 100%;
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.jobsBtn:hover,
+.jobsBtnActive {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.pendingBadge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(74, 158, 255, 0.1);
+  color: var(--accent-primary);
+}
+
+.failedBadge {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(255, 74, 74, 0.1);
+  color: var(--accent-danger);
+}
+
+.pastLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 500;
+  color: var(--text-dimmer);
+}
+
+.pastLabelFailed {
+  color: var(--accent-danger);
+}
+
+.chevron {
+  display: flex;
+  color: var(--text-dimmest);
+  transition: transform 0.2s;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+/* ── Dropdowns ── */
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: var(--border-subtle);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+  padding: 12px;
+  z-index: var(--z-dropdown);
+  animation: fadeIn 0.12s ease-out;
+}
+
+.toolsDropdown {
+  left: 0;
+  width: 420px;
+}
+
+.jobsDropdown {
+  right: 0;
+  width: 380px;
+}
+
+.dropdownHeading {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmer);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+/* ── Tool rows in dropdown ── */
+
+.toolRows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.toolRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.toolIcon {
+  display: flex;
+  width: 14px;
+  align-items: center;
+}
+
+.toolFound {
+  color: var(--accent-success);
+}
+
+.toolMissingReq {
+  color: var(--accent-danger);
+}
+
+.toolMissingOpt {
+  color: var(--accent-warning);
+}
+
+.toolName {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  min-width: 130px;
+}
+
+.toolNameFound {
+  color: var(--text-muted);
+}
+
+.toolNameMissingReq {
+  color: var(--accent-danger);
+}
+
+.toolNameMissingOpt {
+  color: var(--accent-warning);
+}
+
+.toolPath {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmest);
+}
+
+.toolLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.toolLabelReq {
+  color: rgba(255, 74, 74, 0.53);
+}
+
+.toolLabelOpt {
+  color: rgba(255, 184, 74, 0.53);
+}
+
+/* ── Health section in tools dropdown ── */
+
+.healthSection {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.healthError {
+  padding-left: 20px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: rgba(255, 107, 107, 0.53);
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+/* ── Degraded outputs box ── */
+
+.degradedBox {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 184, 74, 0.04);
+  border: 1px solid rgba(255, 184, 74, 0.06);
+}
+
+.degradedHeading {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--accent-warning);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.degradedItem {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmer);
+  padding: 1px 0;
+}
+
+/* ── Job rows in dropdown ── */
+
+.jobRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 5px;
+  margin-bottom: 3px;
+}
+
+.jobRowPending {
+  background: rgba(136, 153, 170, 0.03);
+  border: 1px solid rgba(136, 153, 170, 0.05);
+}
+
+.jobRowDone {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.025);
+}
+
+.jobRowFailed {
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 74, 74, 0.06);
+}
+
+.jobIcon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.jobName {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  flex: 1;
+}
+
+.jobNamePending {
+  color: var(--text-muted);
+}
+
+.jobNamePast {
+  color: var(--text-secondary);
+}
+
+.jobElapsed {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmest);
+}
+
+.jobStatusLabel {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.jobError {
+  padding: 3px 8px 3px 30px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: rgba(255, 107, 107, 0.53);
+  line-height: 1.4;
+}
+
+.emptyJobs {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--text-dimmest);
+  text-align: center;
+  padding: 16px;
+}
+
+/* ─── Animations ─── */
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    left: -40%;
+  }
+  100% {
+    left: 100%;
+  }
+}

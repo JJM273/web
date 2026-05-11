@@ -16,6 +16,7 @@
   top: 56px;
   left: 8px;
   bottom: calc(var(--pb-bottom-height, 90px) + 8px);
+  transition: bottom 0.15s ease;
   width: var(--pb-panel-width, 370px);
   display: flex;
   flex-direction: column;
@@ -34,7 +35,7 @@
 
 .tabs {
   display: flex;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: var(--border-subtle);
   padding: 0 4px;
   flex-shrink: 0;
 }
@@ -48,7 +49,7 @@
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--text-dimmer);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   font-family: var(--font-mono);
@@ -61,12 +62,12 @@
 }
 
 .tabActive {
-  border-bottom-color: var(--accent-blue);
+  border-bottom-color: var(--accent-primary);
   color: var(--text-primary);
 }
 
 .tabLabel {
-  font-size: 11px;
+  font-size: var(--font-size-md);
 }
 
 .tabBadge {
@@ -76,9 +77,9 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent-red);
+  background: var(--accent-danger);
   color: #fff;
-  font-size: 8px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   display: flex;
   align-items: center;
@@ -104,7 +105,7 @@
   border-radius: 6px;
   background: transparent;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -127,7 +128,7 @@
 
 .sideCount {
   opacity: 0.6;
-  font-size: 10px;
+  font-size: var(--font-size-sm);
 }
 
 /* ── Groups ── */
@@ -167,7 +168,7 @@
 
 .groupName {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -176,12 +177,12 @@
 .groupCount {
   margin-left: auto;
   color: var(--text-dimmest);
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
 }
 
 .groupAlive {
-  color: var(--accent-green);
+  color: var(--accent-success);
 }
 
 .groupAliveSlash {
@@ -205,11 +206,11 @@
 }
 
 .unitRow:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-interactive);
 }
 
 .unitRowSelected {
-  background: rgba(74, 158, 255, 0.08);
+  background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
 }
 
 .unitRowDead {
@@ -233,7 +234,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-family: var(--font-mono);
   white-space: nowrap;
   overflow: hidden;
@@ -249,15 +250,15 @@
 }
 
 .unitAiBadge {
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   color: var(--text-dimmest);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-interactive);
   padding: 1px 4px;
   border-radius: 3px;
 }
 
 .unitRole {
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   color: var(--text-dimmest);
   font-family: var(--font-mono);
 }
@@ -267,12 +268,153 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
-  color: var(--accent-red);
-  background: rgba(255, 74, 74, 0.1);
+  color: var(--accent-danger);
+  background: color-mix(in srgb, var(--accent-danger) 10%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
+}
+
+/* ── Unit detail card (inline expand) ── */
+
+@keyframes detailFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.detailCard {
+  margin: 0 8px 4px 8px;
+  padding: 10px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid transparent;
+  animation: detailFadeIn 0.15s ease-out;
+}
+
+.detailStats {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.detailStatPill {
+  text-align: center;
+  padding: 4px 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 5px;
+}
+
+.detailStatValue {
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  line-height: 1;
+  color: var(--text-dimmest);
+}
+
+.detailStatValueKills {
+  color: var(--accent-danger);
+}
+
+.detailStatValueDeaths {
+  color: var(--accent-warning);
+}
+
+.detailStatValueMarkers {
+  color: var(--accent-purple);
+}
+
+.detailStatLabel {
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmer);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+  font-weight: 600;
+}
+
+.detailActions {
+  display: flex;
+  gap: 4px;
+}
+
+.detailFollowBtn {
+  flex: 1;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-dimmer);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.detailFollowBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.detailFollowBtnActive {
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+  color: var(--accent-primary);
+}
+
+.detailAdminSection {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.detailAdminLabel {
+  font-size: var(--font-size-xs);
+  color: var(--text-dimmer);
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+
+.detailBlacklistBtn {
+  width: 100%;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--text-dimmer);
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  transition: all 0.15s;
+}
+
+.detailBlacklistBtn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.detailBlacklistBtnActive {
+  background: color-mix(in srgb, var(--accent-danger) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-danger) 15%, transparent);
+  color: var(--accent-danger);
 }
 
 /* ── Events tab ── */
@@ -289,11 +431,11 @@
 .filterInput {
   flex: 1;
   background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: var(--border-subtle);
   border-radius: 6px;
   padding: 6px 10px;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
   outline: none;
 }
@@ -303,7 +445,7 @@
 }
 
 .filterInput:focus {
-  border-color: rgba(74, 158, 255, 0.3);
+  border-color: var(--focus-ring);
 }
 
 .filterToggle {
@@ -311,7 +453,7 @@
   border-radius: 4px;
   border: none;
   cursor: pointer;
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   transition: all 0.15s;
 }
@@ -321,7 +463,7 @@
 }
 
 .filterToggleInactive {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-interactive);
   color: var(--text-dimmer);
 }
 
@@ -341,7 +483,7 @@
 }
 
 .eventRow:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-interactive);
 }
 
 .eventBorder {
@@ -363,7 +505,7 @@
 }
 
 .eventNames {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   font-family: var(--font-mono);
   text-align: left;
 }
@@ -380,24 +522,24 @@
 }
 
 .eventTime {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
-  color: var(--text-dimmest);
+  color: var(--text-dimmer);
   display: flex;
   align-items: center;
   gap: 3px;
 }
 
 .eventDistance {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   color: var(--text-dimmer);
 }
 
 .eventWeapon {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
-  color: var(--text-dimmest);
+  color: var(--text-dimmer);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -405,7 +547,7 @@
 }
 
 .eventMessage {
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
   color: var(--text-muted);
   text-align: left;
@@ -421,7 +563,7 @@
 }
 
 .statsLabel {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   color: var(--text-dimmer);
   letter-spacing: 0.1em;
@@ -431,57 +573,80 @@
 
 .forceSummary {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .forceCard {
-  flex: 1;
   padding: 10px 12px;
   border-radius: 8px;
 }
 
+.forceCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.forceCardDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
 .forceCardLabel {
-  font-size: 10px;
+  font-size: var(--font-size-md);
   font-weight: 700;
   font-family: var(--font-mono);
-  margin-bottom: 8px;
 }
 
-.forceCardRow {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 4px;
+.forceStatGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 4px;
 }
 
-.forceStrengthBar {
-  width: 100%;
-  height: 3px;
-  background: rgba(255, 255, 255, 0.06);
-  border-radius: 2px;
-  margin-bottom: 8px;
-}
-
-.forceStrengthFill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.3s;
-}
-
-.forceStats {
-  display: flex;
-  justify-content: space-between;
+.forceStatPill {
+  text-align: center;
+  padding: 5px 2px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
 }
 
 .forceStatNum {
-  font-size: 14px;
+  font-size: var(--font-size-xl);
   font-weight: 700;
   font-family: var(--font-mono);
+  line-height: 1;
+  color: var(--text-dimmest);
+}
+
+.forceStatNumTotal {
+  color: var(--text-secondary);
+}
+
+.forceStatNumAlive {
+  color: var(--accent-success);
+}
+
+.forceStatNumKills {
+  color: var(--accent-danger);
+}
+
+.forceStatNumDeaths {
+  color: var(--accent-warning);
 }
 
 .forceStatLabel {
-  font-size: 9px;
+  font-size: var(--font-size-xs);
   color: var(--text-dimmer);
   font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
 }
 
 /* ── Leaderboard ── */
@@ -504,7 +669,7 @@
 }
 
 .leaderboardRank {
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   color: var(--text-dimmest);
   width: 16px;
@@ -512,7 +677,7 @@
 }
 
 .leaderboardName {
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
   color: var(--text-secondary);
   flex: 1;
@@ -522,17 +687,25 @@
 }
 
 .leaderboardKills {
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
-  color: var(--accent-red);
+  color: var(--accent-danger);
   min-width: 20px;
   text-align: right;
 }
 
 .leaderboardDeaths {
-  font-size: 11px;
+  font-size: var(--font-size-md);
   font-family: var(--font-mono);
-  color: var(--accent-orange);
+  color: var(--accent-warning);
+  min-width: 20px;
+  text-align: right;
+}
+
+.leaderboardVehicleKills {
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  color: var(--accent-primary);
   min-width: 20px;
   text-align: right;
 }
@@ -559,7 +732,7 @@
 }
 
 .placeholder {
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-dimmer);
   padding: 32px;
   text-align: center;

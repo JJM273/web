@@ -1,6 +1,7 @@
 .chip {
   position: absolute;
   bottom: calc(var(--pb-bottom-height) + 8px);
+  transition: bottom 0.15s ease;
   left: 50%;
   transform: translateX(-50%);
   z-index: 25;
@@ -8,12 +9,12 @@
   align-items: center;
   gap: 8px;
   padding: 6px 10px 6px 12px;
-  background: rgba(10, 15, 20, 0.85);
+  background: color-mix(in srgb, var(--bg-dark) 85%, transparent);
   backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: var(--border-subtle);
   border-radius: 20px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
   white-space: nowrap;
   pointer-events: auto;
@@ -44,7 +45,7 @@
   color: var(--text-dim);
   cursor: pointer;
   padding: 0;
-  font-size: 12px;
+  font-size: var(--font-size-base);
   line-height: 1;
   transition: background 0.15s;
 }

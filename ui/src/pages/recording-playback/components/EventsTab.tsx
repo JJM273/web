@@ -2,17 +2,16 @@ import { createSignal, createMemo, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { useEngine } from "../../../hooks/useEngine";
 import { useI18n } from "../../../hooks/useLocale";
-import { HitKilledEvent } from "../../../playback/events/hit-killed-event";
-import { ConnectEvent } from "../../../playback/events/connect-event";
-import { EndMissionEvent } from "../../../playback/events/end-mission-event";
-import { GeneralMissionEvent } from "../../../playback/events/general-event";
-import { CapturedEvent } from "../../../playback/events/captured-event";
-import { TerminalHackEvent } from "../../../playback/events/terminal-hack-event";
-import type { GameEvent } from "../../../playback/events/game-event";
-import { SIDE_COLORS_UI } from "../../../config/side-colors";
-import type { Side } from "../../../data/types";
+import { HitKilledEvent } from "../../../playback/events/hitKilledEvent";
+import { ConnectEvent } from "../../../playback/events/connectEvent";
+import { EndMissionEvent } from "../../../playback/events/endMissionEvent";
+import { GeneralMissionEvent } from "../../../playback/events/generalEvent";
+import { CapturedEvent } from "../../../playback/events/capturedEvent";
+import { TerminalHackEvent } from "../../../playback/events/terminalHackEvent";
+import type { GameEvent } from "../../../playback/events/gameEvent";
+import { SIDE_COLORS_UI } from "../../../config/sideColors";
 import { formatElapsedTime } from "../../../playback/time";
-import { SkullIcon, BulletIcon, LinkIcon, ClockIcon, TargetIcon, ActivityIcon } from "./Icons";
+import { SkullIcon, BulletIcon, LinkIcon, ClockIcon, DoorExitIcon, ActivityIcon, FlagIcon, AlertTriangleIcon, TerminalIcon } from "../../../components/Icons";
 import styles from "./SidePanel.module.css";
 
 function sideColor(side?: string): string {
@@ -25,26 +24,27 @@ function sideColor(side?: string): string {
   }
 }
 
-function eventIcon(event: GameEvent): JSX.Element {
+function eventStyle(event: GameEvent): { icon: JSX.Element; color: string } {
   if (event instanceof HitKilledEvent) {
     return event.type === "killed"
-      ? <SkullIcon size={16} />
-      : <BulletIcon size={16} />;
-  }
-  if (event instanceof ConnectEvent) return <LinkIcon size={16} />;
-  if (event instanceof EndMissionEvent) return <TargetIcon size={16} />;
-  return <ActivityIcon size={16} />;
-}
-
-function eventColor(event: GameEvent): string {
-  if (event instanceof HitKilledEvent) {
-    return event.type === "killed" ? "var(--accent-red)" : "var(--accent-orange)";
+      ? { icon: <SkullIcon size={16} />, color: "var(--accent-danger)" }
+      : { icon: <BulletIcon size={16} />, color: "var(--accent-warning)" };
   }
   if (event instanceof ConnectEvent) {
-    return event.type === "connected" ? "var(--accent-green)" : "#888";
+    return { icon: <LinkIcon size={16} />, color: event.type === "connected" ? "var(--accent-success)" : "#888" };
   }
-  if (event instanceof EndMissionEvent) return "var(--accent-purple)";
-  return "#888";
+  if (event instanceof EndMissionEvent) {
+    return { icon: <DoorExitIcon size={16} />, color: "var(--accent-purple)" };
+  }
+  if (event instanceof CapturedEvent) {
+    return event.type === "contested"
+      ? { icon: <AlertTriangleIcon size={16} />, color: "var(--accent-warning)" }
+      : { icon: <FlagIcon size={16} />, color: "var(--accent-primary)" };
+  }
+  if (event instanceof TerminalHackEvent) {
+    return { icon: <TerminalIcon size={16} />, color: "var(--accent-warning)" };
+  }
+  return { icon: <ActivityIcon size={16} />, color: "#888" };
 }
 
 export function EventsTab(): JSX.Element {
@@ -100,6 +100,8 @@ export function EventsTab(): JSX.Element {
     engine.seekTo(event.frameNum);
     if (event instanceof HitKilledEvent) {
       engine.panToEntity(event.victimId);
+    } else if (event instanceof CapturedEvent && event.position) {
+      engine.panToPosition(event.position);
     }
   };
 
@@ -125,7 +127,7 @@ export function EventsTab(): JSX.Element {
           }}
           style={showHits() ? {
             background: "rgba(255,74,74,0.15)",
-            color: "var(--accent-red)",
+            color: "var(--accent-danger)",
           } : undefined}
           onClick={() => setShowHits(!showHits())}
         >
@@ -138,7 +140,7 @@ export function EventsTab(): JSX.Element {
           }}
           style={showConnects() ? {
             background: "rgba(45,212,160,0.15)",
-            color: "var(--accent-green)",
+            color: "var(--accent-success)",
           } : undefined}
           onClick={() => setShowConnects(!showConnects())}
         >
@@ -153,15 +155,16 @@ export function EventsTab(): JSX.Element {
         }>
           <For each={filteredEvents()}>
             {(event) => {
-              const color = eventColor(event);
+              const { icon, color } = eventStyle(event);
               return (
                 <button
+                  data-testid={`event-row-${event.frameNum}`}
                   class={`${styles.eventRow} ${styles.eventBorder}`}
                   style={{ "border-left-color": color }}
                   onClick={() => handleEventClick(event)}
                 >
                   <span class={styles.eventIcon} style={{ color }}>
-                    {eventIcon(event)}
+                    {icon}
                   </span>
                   <span class={styles.eventContent}>
                     {event instanceof HitKilledEvent ? (
@@ -221,7 +224,6 @@ export function EventsTab(): JSX.Element {
                           <span style={{ color: sideColor(event.side) }}>
                             {event.side}
                           </span>
-                          {" \u2014 "}
                           <span style={{ color: "var(--text-secondary)" }}>{event.message}</span>
                         </span>
                         <span class={styles.eventMeta}>
@@ -244,7 +246,13 @@ export function EventsTab(): JSX.Element {
                     ) : event instanceof CapturedEvent ? (
                       <>
                         <span class={styles.eventMessage}>
-                          {event.unitName} captured {event.objectType}
+                          {event.type === "capturedFlag"
+                            ? <>{event.unitName} {t("captured")} {event.objectType}</>
+                            : <>
+                                {t("sector")} {event.unitName} {t(event.type)}
+                                {event.side ? <> <span style={{ color: sideColor(event.side) }}>({event.side})</span></> : null}
+                              </>
+                          }
                         </span>
                         <span class={styles.eventMeta}>
                           <span class={styles.eventTime}>

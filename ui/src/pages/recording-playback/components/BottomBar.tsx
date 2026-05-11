@@ -1,130 +1,125 @@
-import { createSignal, onMount, onCleanup, Show, For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { JSX, Accessor } from "solid-js";
 import { useEngine } from "../../../hooks/useEngine";
-import { useRenderer } from "../../../hooks/useRenderer";
 import { useI18n } from "../../../hooks/useLocale";
 import { formatTime } from "../../../playback/time";
 import type { TimeMode } from "../../../playback/time";
 import {
   MapIcon,
-  SkipBackIcon,
   PlayIcon,
   PauseIcon,
-  SkipForwardIcon,
-  ChevronDownIcon,
-} from "./Icons";
+  StepBackIcon,
+  StepForwardIcon,
+  SkipToKillBackIcon,
+  SkipToKillIcon,
+  ScissorsIcon,
+} from "../../../components/Icons";
+import {
+  stepBack,
+  stepForward,
+  seekToPrevKill,
+  seekToNextKill,
+} from "../shortcuts";
 import { TimelineScrubber } from "./TimelineScrubber";
-import { SpeedSelector } from "./SpeedSelector";
+import type { FocusRange } from "./FocusToolbar";
+import { FocusToolbar } from "./FocusToolbar";
 import styles from "./BottomBar.module.css";
 
 export interface BottomBarProps {
   panelOpen: Accessor<boolean>;
   onTogglePanel: () => void;
+  timeMode: Accessor<TimeMode>;
+  // Focus range
+  focusRange: Accessor<FocusRange | null>;
+  editingFocus: Accessor<boolean>;
+  focusDraft: Accessor<FocusRange | null>;
+  onDraftChange: (draft: FocusRange) => void;
+  showFullTimeline: Accessor<boolean>;
+  onToggleFullTimeline: () => void;
+  constrainToFocus: Accessor<boolean>;
+  isAdmin: Accessor<boolean>;
+  onStartFocusEdit: () => void;
+  onSetIn: () => void;
+  onSetOut: () => void;
+  onClearFocus: () => void;
+  onCancelFocus: () => void;
+  onSaveFocus: () => void;
 }
 
-type NameMode = "all" | "players" | "none";
-const NAME_MODES: NameMode[] = ["all", "players", "none"];
-const NAME_MODE_KEYS: Record<NameMode, string> = {
-  all: "names_all",
-  players: "names_players",
-  none: "names_none",
-};
-
-const TIME_MODES: TimeMode[] = ["elapsed", "mission", "system"];
-const TIME_MODE_KEYS: Record<TimeMode, string> = {
-  elapsed: "time_elapsed",
-  mission: "time_mission",
-  system: "time_system",
-};
+const SPEEDS = [1, 2, 5, 10, 20, 60];
 
 export function BottomBar(props: BottomBarProps): JSX.Element {
   const engine = useEngine();
-  const renderer = useRenderer();
   const { t } = useI18n();
 
-  // ── Time display ──
-  const [timeMode, setTimeMode] = createSignal<TimeMode>("elapsed");
-
   const currentTime = () =>
-    formatTime(engine.currentFrame(), timeMode(), engine.timeConfig);
+    formatTime(engine.currentFrame(), props.timeMode(), engine.timeConfig);
 
   const totalTime = () =>
-    formatTime(engine.endFrame(), timeMode(), engine.timeConfig);
-
-  const isTimeModeAvailable = (mode: TimeMode): boolean => {
-    if (mode === "elapsed") return true;
-    if (mode === "system") {
-      const times = engine.timeConfig.times;
-      return !!times && times.length > 0;
-    }
-    if (mode === "mission") {
-      return !!engine.timeConfig.missionDate;
-    }
-    return false;
-  };
-
-  // ── Time mode dropdown ──
-  const [timeModeOpen, setTimeModeOpen] = createSignal(false);
-  let timeModeRef: HTMLDivElement | undefined;
-
-  // ── Names dropdown ──
-  const [namesOpen, setNamesOpen] = createSignal(false);
-  const [nameMode, setNameMode] = createSignal<NameMode>("all");
-  let namesRef: HTMLDivElement | undefined;
-
-  const handleClickOutside = (e: MouseEvent) => {
-    if (timeModeRef && !timeModeRef.contains(e.target as Node)) {
-      setTimeModeOpen(false);
-    }
-    if (namesRef && !namesRef.contains(e.target as Node)) {
-      setNamesOpen(false);
-    }
-  };
-
-  onMount(() => {
-    document.addEventListener("pointerdown", handleClickOutside);
-  });
-  onCleanup(() => {
-    document.removeEventListener("pointerdown", handleClickOutside);
-  });
+    formatTime(engine.endFrame(), props.timeMode(), engine.timeConfig);
 
   return (
     <div class={styles.bottomBar}>
       {/* Row 1: Timeline */}
       <div class={styles.timelineRow}>
-        <TimelineScrubber />
+        <TimelineScrubber
+          focusRange={props.showFullTimeline() ? (() => null) : props.focusRange}
+          editingFocus={props.editingFocus}
+          focusDraft={props.focusDraft}
+          onDraftChange={props.onDraftChange}
+          constrainToFocus={props.constrainToFocus}
+        />
       </div>
+
+      {/* Focus Toolbar (edit mode) */}
+      <Show when={props.editingFocus()}>
+        <FocusToolbar
+          draft={props.focusDraft}
+          onSetIn={props.onSetIn}
+          onSetOut={props.onSetOut}
+          onClear={props.onClearFocus}
+          onCancel={props.onCancelFocus}
+          onSave={props.onSaveFocus}
+        />
+      </Show>
 
       {/* Row 2: Controls */}
       <div class={styles.controlsRow}>
-        {/* Left: Panel toggle + time display */}
+        {/* Left: Time display */}
         <div class={styles.controlsLeft}>
-          <button
-            class={styles.panelToggle}
-            classList={{
-              [styles.panelToggleActive]: props.panelOpen(),
-            }}
-            onClick={props.onTogglePanel}
-          >
-            <MapIcon size={12} />
-            {t("panel")}
-            <kbd>E</kbd>
-          </button>
-
           <span class={styles.timeDisplay}>
             {currentTime()}
             <span class={styles.timeSeparator}>/</span>
             <span class={styles.timeDimmed}>{totalTime()}</span>
           </span>
+
+          <Show when={props.focusRange() && !props.editingFocus()}>
+            <button
+              class={styles.focusToggle}
+              onClick={props.onToggleFullTimeline}
+              title={props.showFullTimeline() ? "Show focused range" : "Show full recording"}
+            >
+              {props.showFullTimeline() ? "FULL" : "FOCUS"}
+            </button>
+          </Show>
         </div>
 
-        {/* Center: Playback controls */}
+        {/* Center: Transport controls */}
         <div class={styles.controlsCenter}>
           <button
             class={styles.skipBtn}
-            onClick={() => engine.seekTo(0)}
+            title={t("prev_kill") + "  [ , ]"}
+            onClick={() => seekToPrevKill(engine)}
           >
-            <SkipBackIcon size={16} />
+            <SkipToKillBackIcon size={16} />
+          </button>
+
+          <button
+            class={styles.skipBtn}
+            title={t("step_back") + "  [ \u2190 ]"}
+            onClick={() => stepBack(engine)}
+          >
+            <StepBackIcon size={16} />
           </button>
 
           <button
@@ -142,81 +137,59 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
 
           <button
             class={styles.skipBtn}
-            onClick={() => engine.seekTo(engine.endFrame())}
+            title={t("step_forward") + "  [ \u2192 ]"}
+            onClick={() => stepForward(engine)}
           >
-            <SkipForwardIcon size={16} />
+            <StepForwardIcon size={16} />
+          </button>
+
+          <button
+            class={styles.skipBtn}
+            title={t("next_kill") + "  [ . ]"}
+            onClick={() => seekToNextKill(engine)}
+          >
+            <SkipToKillIcon size={16} />
           </button>
         </div>
 
-        {/* Right: Speed, time mode, names */}
+        {/* Right: Speed strip + Focus button */}
         <div class={styles.controlsRight}>
-          <SpeedSelector />
-
-          <div ref={timeModeRef} style={{ position: "relative" }}>
-            <button
-              class={`${styles.speedBtn} ${styles.dropdownWide}`}
-              onClick={() => setTimeModeOpen((v) => !v)}
-            >
-              {t(TIME_MODE_KEYS[timeMode()])}
-              <ChevronDownIcon />
-            </button>
-            <Show when={timeModeOpen()}>
-              <div class={`${styles.speedPopup} ${styles.dropdownPopupWide}`}>
-                <For each={TIME_MODES}>
-                  {(mode) => {
-                    const available = () => isTimeModeAvailable(mode);
-                    return (
-                      <button
-                        class={styles.speedOption}
-                        classList={{
-                          [styles.speedOptionActive]: timeMode() === mode,
-                          [styles.speedOptionDisabled]: !available(),
-                        }}
-                        disabled={!available()}
-                        onClick={() => {
-                          setTimeMode(mode);
-                          setTimeModeOpen(false);
-                        }}
-                      >
-                        {t(TIME_MODE_KEYS[mode])}
-                      </button>
-                    );
-                  }}
-                </For>
-              </div>
-            </Show>
+          <div class={styles.speedStrip}>
+            <For each={SPEEDS}>
+              {(s) => (
+                <button
+                  class={styles.speedBtn}
+                  classList={{ [styles.speedBtnActive]: engine.playbackSpeed() === s }}
+                  onClick={() => engine.setSpeed(s)}
+                >
+                  {s}&times;
+                </button>
+              )}
+            </For>
           </div>
 
-          <div ref={namesRef} style={{ position: "relative" }}>
+          <Show when={props.isAdmin() && !props.editingFocus()}>
             <button
-              class={`${styles.speedBtn} ${styles.dropdownWide}`}
-              onClick={() => setNamesOpen((v) => !v)}
+              class={styles.focusBtn}
+              classList={{ [styles.focusBtnActive]: !!props.focusRange() }}
+              onClick={props.onStartFocusEdit}
+              title="Edit focus range"
             >
-              {t(NAME_MODE_KEYS[nameMode()])}
-              <ChevronDownIcon />
+              <ScissorsIcon size={12} /> Focus
             </button>
-            <Show when={namesOpen()}>
-              <div class={`${styles.speedPopup} ${styles.dropdownPopupWide}`}>
-                <For each={NAME_MODES}>
-                  {(mode) => (
-                    <button
-                      class={styles.speedOption}
-                      classList={{
-                        [styles.speedOptionActive]: nameMode() === mode,
-                      }}
-                      onClick={() => {
-                        setNameMode(mode);
-                        renderer.setNameDisplayMode(mode);
-                        setNamesOpen(false);
-                      }}
-                    >
-                      {t(NAME_MODE_KEYS[mode])}
-                    </button>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
+          </Show>
+
+          <button
+            class={styles.panelToggle}
+            classList={{
+              [styles.panelToggleActive]: props.panelOpen(),
+            }}
+            onClick={() => props.onTogglePanel()}
+          >
+            <MapIcon size={12} />
+            {t("panel")}
+            <kbd>E</kbd>
+          </button>
         </div>
       </div>
     </div>

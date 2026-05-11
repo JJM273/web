@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { PlaybackEngine } from "../playback/engine";
-import { MockRenderer } from "../renderers/mock-renderer";
-import { EntityManager } from "../playback/entity-manager";
+import { MockRenderer } from "../renderers/mockRenderer";
+import { EntityManager } from "../playback/entityManager";
 import { Unit } from "../playback/entities/unit";
 import { Vehicle } from "../playback/entities/vehicle";
-import { HitKilledEvent } from "../playback/events/hit-killed-event";
+import { HitKilledEvent } from "../playback/events/hitKilledEvent";
 import type {
   Manifest,
   EntityDef,
@@ -12,7 +12,7 @@ import type {
   ChunkData,
   EntityState,
 } from "../data/types";
-import type { ChunkManager } from "../data/chunk-manager";
+import type { ChunkManager } from "../data/chunkManager";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -23,7 +23,7 @@ function makeManifest(overrides: Partial<Manifest> = {}): Manifest {
     version: 1,
     worldName: "Altis",
     missionName: "Integration Test Mission",
-    frameCount: 100,
+    endFrame: 99,
     chunkSize: 300,
     captureDelayMs: 1000,
     chunkCount: 1,
@@ -93,6 +93,20 @@ function makeMockChunkManager(
 }
 
 // ---------------------------------------------------------------------------
+// Shared rAF stub — engine uses requestAnimationFrame internally.
+// Stub to 1ms interval so timing assertions work precisely.
+// ---------------------------------------------------------------------------
+
+function stubRaf(): void {
+  vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => {
+    return setTimeout(() => cb(performance.now()), 1) as unknown as number;
+  });
+  vi.stubGlobal("cancelAnimationFrame", (id: number) => {
+    clearTimeout(id);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Integration tests
 // ---------------------------------------------------------------------------
 
@@ -102,12 +116,14 @@ describe("Integration: Full stack playback", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    stubRaf();
     renderer = new MockRenderer();
     engine = new PlaybackEngine(renderer);
   });
 
   afterEach(() => {
     engine.dispose();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -139,7 +155,7 @@ describe("Integration: Full stack playback", () => {
     ];
 
     const manifest = makeManifest({
-      frameCount: 200,
+      endFrame: 199,
       entities,
       events,
     });
@@ -154,7 +170,7 @@ describe("Integration: Full stack playback", () => {
     const cm = makeMockChunkManager(chunkData);
 
     // Load operation
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     // Verify entities populated
     expect(engine.entityManager.getAll()).toHaveLength(3);
@@ -166,7 +182,7 @@ describe("Integration: Full stack playback", () => {
     // hit and killed produce HitKilledEvent, connected produces ConnectEvent
     expect(engine.eventManager.getAll()).toHaveLength(3);
 
-    // Verify endFrame = frameCount - 1
+    // Verify endFrame matches manifest
     expect(engine.endFrame()).toBe(199);
   });
 
@@ -178,12 +194,12 @@ describe("Integration: Full stack playback", () => {
     const cm = makeMockChunkManager(chunkData);
 
     const manifest = makeManifest({
-      frameCount: 50,
+      endFrame: 49,
       captureDelayMs: 500,
       entities: [makeEntityDef({ id: 1, endFrame: 49 })],
     });
 
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
     engine.setSpeed(1);
 
     // Start playback
@@ -218,11 +234,11 @@ describe("Integration: Full stack playback", () => {
     const cm = makeMockChunkManager(chunkData);
 
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [makeEntityDef({ id: 1 })],
     });
 
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     // Seek to frame 42
     engine.seekTo(42);
@@ -244,12 +260,12 @@ describe("Integration: Full stack playback", () => {
     const cm = makeMockChunkManager(chunkData);
 
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       captureDelayMs: 200,
       entities: [makeEntityDef({ id: 1 })],
     });
 
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
     engine.setSpeed(1);
 
     // Play for 3 ticks
@@ -275,12 +291,12 @@ describe("Integration: Full stack playback", () => {
     const cm = makeMockChunkManager(chunkData);
 
     const manifest = makeManifest({
-      frameCount: 10,
+      endFrame: 9,
       captureDelayMs: 100,
       entities: [makeEntityDef({ id: 1, endFrame: 9 })],
     });
 
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
     engine.setSpeed(1);
     expect(engine.currentFrame()).toBe(0);
     expect(engine.endFrame()).toBe(9);
@@ -359,7 +375,7 @@ describe("Integration: Entity type verification", () => {
     const engine = new PlaybackEngine(renderer);
 
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [
         makeEntityDef({ id: 1, type: "man", name: "Rifleman" }),
         makeEntityDef({ id: 2, type: "car", name: "MRAP" }),
@@ -370,7 +386,7 @@ describe("Integration: Entity type verification", () => {
     });
 
     const cm = makeMockChunkManager();
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     // Verify units
     const units = engine.entityManager.getUnits();
@@ -396,18 +412,20 @@ describe("Integration: Event resolution", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    stubRaf();
     renderer = new MockRenderer();
     engine = new PlaybackEngine(renderer);
   });
 
   afterEach(() => {
     engine.dispose();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
   it("resolves victim and causer names on HitKilled events", () => {
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [
         makeEntityDef({
           id: 1,
@@ -435,7 +453,7 @@ describe("Integration: Event resolution", () => {
     });
 
     const cm = makeMockChunkManager();
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     // Get the resolved event
     const events = engine.eventManager.getAll();
@@ -453,7 +471,7 @@ describe("Integration: Event resolution", () => {
 
   it("resolves multiple HitKilled events with correct references", () => {
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [
         makeEntityDef({ id: 1, name: "UnitA", side: "WEST" }),
         makeEntityDef({ id: 2, name: "UnitB", side: "EAST" }),
@@ -488,7 +506,7 @@ describe("Integration: Event resolution", () => {
     });
 
     const cm = makeMockChunkManager();
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     const events = engine.eventManager.getAll();
     expect(events).toHaveLength(3);
@@ -520,7 +538,7 @@ describe("Integration: Event resolution", () => {
 
   it("handles events where victim or causer is a vehicle (no side resolution)", () => {
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [
         makeEntityDef({
           id: 1,
@@ -548,7 +566,7 @@ describe("Integration: Event resolution", () => {
     });
 
     const cm = makeMockChunkManager();
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     const event = engine.eventManager.getAll()[0] as HitKilledEvent;
     expect(event.victimName).toBe("Soldier");
@@ -561,7 +579,7 @@ describe("Integration: Event resolution", () => {
 
   it("events at specific frames are retrievable after load", () => {
     const manifest = makeManifest({
-      frameCount: 100,
+      endFrame: 99,
       entities: [
         makeEntityDef({ id: 1, name: "A" }),
         makeEntityDef({ id: 2, name: "B" }),
@@ -588,7 +606,7 @@ describe("Integration: Event resolution", () => {
     });
 
     const cm = makeMockChunkManager();
-    engine.loadOperation(manifest, cm);
+    engine.loadRecording(manifest, cm);
 
     // Two events at frame 5 (cumulative: 2)
     engine.seekTo(5);

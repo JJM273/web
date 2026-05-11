@@ -2,11 +2,14 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,11 +17,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/OCAP2/web/internal/maptool"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-fuego/fuego"
+	"github.com/yohcop/openid-go"
 )
+
+// ContextNoBody is the Fuego context type used by typed handlers that take no request body.
+type ContextNoBody = fuego.ContextNoBody
+
+// OpenAPISecuritySchemes defines the security schemes for the OpenAPI spec.
+var OpenAPISecuritySchemes = openapi3.SecuritySchemes{
+	"bearerAuth": &openapi3.SecuritySchemeRef{
+		Value: openapi3.NewSecurityScheme().
+			WithType("http").
+			WithScheme("bearer").
+			WithBearerFormat("JWT").
+			WithDescription("JWT token obtained via Steam OpenID login"),
+	},
+}
 
 const CacheDuration = 7 * 24 * time.Hour
 
@@ -38,8 +58,19 @@ type Handler struct {
 	repoMarker        *RepoMarker
 	repoAmmo          *RepoAmmo
 	setting           Setting
-	conversionTrigger ConversionTrigger // optional, nil if conversion disabled
-	staticFS          fs.FS             // optional, nil disables static file serving
+	jwt               *JWTManager
+	conversionTrigger ConversionTrigger   // optional, nil if conversion disabled
+	staticFS          fs.FS               // optional, nil disables static file serving
+	maptoolMgr        *maptool.JobManager // optional, nil if maptool disabled
+	maptoolCfg        *maptoolConfig      // optional, nil if maptool disabled
+	openIDVerifier    openIDVerifier
+	openIDCache       openid.DiscoveryCache
+	openIDNonceStore  openid.NonceStore
+	steamAPIBaseURL   string // override for testing; empty uses default
+
+	spriteOnce    sync.Once
+	spriteFiles   map[string][]byte
+	spriteInitErr error
 }
 
 // HandlerOption configures the Handler
@@ -59,8 +90,27 @@ func WithStaticFS(fsys fs.FS) HandlerOption {
 	}
 }
 
+// WithMapTool enables the maptool integration
+func WithMapTool(jm *maptool.JobManager, tools maptool.ToolSet, mapsDir string) HandlerOption {
+	return func(h *Handler) {
+		h.maptoolMgr = jm
+		h.maptoolCfg = &maptoolConfig{tools: tools, mapsDir: mapsDir}
+	}
+}
+
+// Response types for typed Fuego handlers
+type HealthResponse struct {
+	Status string `json:"status"`
+}
+
+type VersionResponse struct {
+	BuildVersion string `json:"BuildVersion"`
+	BuildCommit  string `json:"BuildCommit"`
+	BuildDate    string `json:"BuildDate"`
+}
+
 func NewHandler(
-	e *echo.Echo,
+	s *fuego.Server,
 	repoOperation *RepoOperation,
 	repoMarker *RepoMarker,
 	repoAmmo *RepoAmmo,
@@ -79,231 +129,317 @@ func NewHandler(
 		opt(&hdlr)
 	}
 
-	e.Use(hdlr.errorHandler)
+	hdlr.jwt = NewJWTManager(setting.Secret, setting.Auth.SessionTTL)
+	hdlr.openIDCache = openid.NewSimpleDiscoveryCache()
+	hdlr.openIDNonceStore = openid.NewSimpleNonceStore()
+	hdlr.openIDVerifier = defaultOpenIDVerifier{}
 
 	prefixURL := strings.TrimRight(hdlr.setting.PrefixURL, "/")
-	g := e.Group(prefixURL)
+	g := fuego.Group(s, prefixURL)
 
-	g.GET("/api/healthcheck", hdlr.GetHealthcheck)
+	fuego.Use(g, newCORSMiddleware(hdlr.setting.CORS.AllowedOrigins))
 
-	g.GET(
-		"/api/v1/operations",
-		hdlr.GetOperations,
-	)
-	g.GET(
-		"/api/v1/operations/:id",
-		hdlr.GetOperation,
-	)
-	g.POST(
-		"/api/v1/operations/add",
-		hdlr.StoreOperation,
-	)
-	g.GET(
-		"/api/v1/customize",
-		hdlr.GetCustomize,
-	)
-	g.GET(
-		"/api/v1/stream",
-		hdlr.HandleStream,
-	)
-	g.GET(
-		"/api/version",
-		hdlr.GetVersion,
-	)
-	g.GET(
-		"/data/*",
-		hdlr.GetData,
-		hdlr.cacheControl(CacheDuration),
-	)
-	g.GET(
-		"/images/markers/:name/:color",
-		hdlr.GetMarker,
-		hdlr.cacheControl(CacheDuration),
-	)
-	g.GET(
-		"/images/markers/magicons/:name",
-		hdlr.GetAmmo,
-		hdlr.cacheControl(CacheDuration),
-	)
-	g.GET(
-		"/images/maps/fonts/:fontstack/:range",
-		hdlr.GetFont,
-		hdlr.cacheControl(CacheDuration),
-	)
-	g.GET(
-		"/images/maps/*",
-		hdlr.GetMapTitle,
-		hdlr.cacheControl(CacheDuration),
-	)
-	g.HEAD(
-		"/images/maps/*",
-		hdlr.GetMapTitle,
-		hdlr.cacheControl(CacheDuration),
-	)
+	bearerAuth := openapi3.SecurityRequirement{"bearerAuth": {}}
+
+	// Health & info
+	fuego.Get(g, "/api/healthcheck", hdlr.GetHealthcheck, fuego.OptionTags("Health"))
+	fuego.Get(g, "/api/version", hdlr.GetVersion, fuego.OptionTags("Health"))
+
+	// Public recording endpoints (own auth or needed before login)
+	fuego.PostStd(g, "/api/v1/operations/add", hdlr.StoreOperation, fuego.OptionTags("Recordings"))
+	fuego.Get(g, "/api/v1/customize", hdlr.GetCustomize, fuego.OptionTags("Recordings"))
+	fuego.GetStd(g, "/api/v1/stream", hdlr.HandleStream, fuego.OptionTags("Recordings"))
+
+	// Viewer-gated endpoints (require valid JWT in non-public modes)
+	viewer := fuego.Group(g, "")
+	fuego.Use(viewer, hdlr.requireViewer)
+	fuego.Get(viewer, "/api/v1/operations", hdlr.GetOperations, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}", hdlr.GetOperation, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}/marker-blacklist", hdlr.GetMarkerBlacklist, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/worlds", hdlr.GetWorlds, fuego.OptionTags("Recordings"))
+
+	// Assets (static file serving)
+	cacheMiddleware := hdlr.cacheControl(CacheDuration)
+	fuego.GetStd(viewer, "/data/{path...}", hdlr.GetData, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(g, "/images/markers/{name}/{color}", hdlr.GetMarker, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(g, "/images/markers/magicons/{name}", hdlr.GetAmmo, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(g, "/images/maps/fonts/{fontstack}/{range}", hdlr.GetFont, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(g, "/images/maps/sprites/{name}", hdlr.GetSprite, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(g, "/images/maps/{path...}", hdlr.GetMapTile, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+
+	// Auth
+	fuego.Get(g, "/api/v1/auth/config", hdlr.GetAuthConfig, fuego.OptionTags("Auth"))
+	fuego.GetStd(g, "/api/v1/auth/steam", hdlr.SteamLogin, fuego.OptionTags("Auth"))
+	fuego.GetStd(g, "/api/v1/auth/steam/callback", hdlr.SteamCallback, fuego.OptionTags("Auth"))
+	fuego.PostStd(g, "/api/v1/auth/password", hdlr.PasswordLogin, fuego.OptionTags("Auth"))
+	fuego.Get(g, "/api/v1/auth/me", hdlr.GetMe, fuego.OptionTags("Auth"))
+	fuego.Post(g, "/api/v1/auth/logout", hdlr.Logout, fuego.OptionTags("Auth"), fuego.OptionSecurity(bearerAuth))
+
+	// Admin (require JWT)
+	admin := fuego.Group(g, "")
+	fuego.Use(admin, hdlr.requireAdmin)
+	fuego.Patch(admin, "/api/v1/operations/{id}", hdlr.EditOperation, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Delete(admin, "/api/v1/operations/{id}", hdlr.DeleteOperation, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Post(admin, "/api/v1/operations/{id}/retry", hdlr.RetryConversion, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Put(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.AddMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Delete(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.RemoveMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/admin-config", hdlr.GetAdminAuthConfig, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/allowlist", hdlr.GetAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Put(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.AddToAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Delete(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.RemoveFromAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+
+	// MapTool (require admin JWT; SSE endpoint handles its own auth via query param)
+	if hdlr.maptoolMgr != nil {
+		mt := fuego.Group(admin, "/api/v1/maptool")
+		fuego.Get(mt, "/health", hdlr.getMapToolHealth, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Get(mt, "/tools", hdlr.getMapToolTools, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Get(mt, "/maps", hdlr.getMapToolMaps, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Delete(mt, "/maps/{name}", hdlr.deleteMapToolMap, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Post(mt, "/maps/import", hdlr.importMapToolZip, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Post(mt, "/maps/restyle", hdlr.restyleMapToolAll, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Get(mt, "/jobs", hdlr.getMapToolJobs, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		fuego.Post(mt, "/jobs/{id}/cancel", hdlr.cancelMapToolJob, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+		// SSE endpoint — registered on the prefix group (not admin) so it can do its own auth via query token
+		fuego.GetStd(g, "/api/v1/maptool/events", hdlr.mapToolEventStream, fuego.OptionTags("MapTool"), fuego.OptionSecurity(bearerAuth))
+	}
+
 	if hdlr.staticFS != nil {
 		// Serve the SPA frontend with fallback to index.html for client-side routing
 		staticHandler := spaFileServer(hdlr.staticFS, prefixURL)
-		g.GET("/*", echo.WrapHandler(staticHandler), hdlr.cacheControl(0))
-		g.GET("", echo.WrapHandler(staticHandler), middleware.AddTrailingSlashWithConfig(middleware.TrailingSlashConfig{
-			RedirectCode: http.StatusMovedPermanently,
-		}))
+		noCacheMiddleware := hdlr.cacheControl(0)
+		fuego.Handle(g, "/{path...}", noCacheMiddleware(staticHandler))
 	}
 }
 
-func (*Handler) cacheControl(duration time.Duration) echo.MiddlewareFunc {
+// newCORSMiddleware returns a CORS middleware. When allowedOrigins is empty,
+// all origins are permitted via the wildcard (*). When specific origins are
+// listed, Vary: Origin is always set (so caches key on it) and the
+// Allow-Origin header is only set for matching origins.
+func newCORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		originSet[o] = struct{}{}
+	}
+	wildcard := len(allowedOrigins) == 0
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if wildcard {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Add("Vary", "Origin")
+				if origin := r.Header.Get("Origin"); origin != "" {
+					if _, ok := originSet[origin]; ok {
+						w.Header().Set("Access-Control-Allow-Origin", origin)
+					}
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func (*Handler) cacheControl(duration time.Duration) func(http.Handler) http.Handler {
 	var header string
 	if duration < time.Second {
 		header = "no-cache"
 	} else {
 		header = fmt.Sprintf("max-age=%.0f", duration.Seconds())
 	}
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			c.Response().Header().Set("Cache-Control", header)
-			return next(c)
-		}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", header)
+			next.ServeHTTP(w, r)
+		})
 	}
 }
 
-func (h *Handler) errorHandler(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		err := next(c)
-		if err != nil {
-			switch true {
-			case errors.Is(err, ErrNotFound):
-				return c.NoContent(http.StatusNotFound)
-			default:
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-func (h *Handler) GetOperations(c echo.Context) error {
-	var (
-		ctx    = c.Request().Context()
-		filter = Filter{}
-	)
-
-	if err := c.Bind(&filter); err != nil {
-		return err
+func (h *Handler) GetOperations(c fuego.Context[any, Filter]) ([]Operation, error) {
+	ctx := c.Context()
+	filter := Filter{
+		Name:  c.QueryParam("name"),
+		Older: c.QueryParam("older"),
+		Newer: c.QueryParam("newer"),
+		Tag:   c.QueryParam("tag"),
 	}
 
 	ops, err := h.repoOperation.Select(ctx, filter)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return c.JSONPretty(http.StatusOK, ops, "\t")
+	return ops, nil
 }
 
-func (h *Handler) GetOperation(c echo.Context) error {
-	ctx := c.Request().Context()
-	id := c.Param("id")
+func (h *Handler) GetOperation(c ContextNoBody) (*Operation, error) {
+	ctx := c.Context()
+	id := c.PathParam("id")
 
 	// Try by ID first, then by filename
 	op, err := h.repoOperation.GetByID(ctx, id)
 	if err != nil {
 		op, err = h.repoOperation.GetByFilename(ctx, id)
 		if err != nil {
-			return echo.ErrNotFound
+			return nil, fuego.NotFoundError{Err: err, Detail: "recording not found"}
 		}
 	}
 
-	return c.JSONPretty(http.StatusOK, op, "\t")
+	return op, nil
 }
 
-func (h *Handler) GetCustomize(c echo.Context) error {
-	if !h.setting.Customize.Enabled {
-		return c.NoContent(http.StatusNoContent)
+func (h *Handler) GetWorlds(c ContextNoBody) ([]WorldInfo, error) {
+	worlds, err := ScanWorlds(h.setting.Maps)
+	if err != nil {
+		return nil, err
 	}
-	return c.JSONPretty(http.StatusOK, h.setting.Customize, "\t")
+	return worlds, nil
 }
 
-func (h *Handler) GetVersion(c echo.Context) error {
-	return c.JSONPretty(http.StatusOK, struct {
-		BuildVersion string
-		BuildCommit  string
-		BuildDate    string
-	}{
+func (h *Handler) GetCustomize(c ContextNoBody) (Customize, error) {
+	return h.setting.Customize, nil
+}
+
+func (h *Handler) GetVersion(c ContextNoBody) (VersionResponse, error) {
+	return VersionResponse{
 		BuildVersion: BuildVersion,
 		BuildCommit:  BuildCommit,
 		BuildDate:    BuildDate,
-	}, "\t")
+	}, nil
 }
 
-func (*Handler) GetHealthcheck(c echo.Context) error {
-	return c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+func (*Handler) GetHealthcheck(c ContextNoBody) (HealthResponse, error) {
+	return HealthResponse{Status: "ok"}, nil
 }
 
-func (h *Handler) StoreOperation(c echo.Context) error {
+func (h *Handler) StoreOperation(w http.ResponseWriter, r *http.Request) {
 	var (
-		ctx    = c.Request().Context()
-		secret = c.FormValue("secret")
+		ctx    = r.Context()
+		secret = r.FormValue("secret")
 		err    error
 	)
 
 	if secret != h.setting.Secret {
-		return echo.ErrForbidden
+		// Fall back to JWT Bearer token auth (admin UI uploads)
+		token := bearerToken(r)
+		claims := h.jwt.Claims(token)
+		if claims == nil || claims.Role != "admin" {
+			var reason string
+			if token != "" {
+				reason = "invalid or insufficient token"
+			} else if secret == "" {
+				reason = "missing secret"
+			} else {
+				reason = "invalid secret"
+			}
+			slog.Warn("upload rejected", "reason", reason, "remote_addr", r.RemoteAddr)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":  "Forbidden",
+				"detail": "Authentication failed: " + reason + ". Verify the secret matches your server configuration.",
+			})
+			return
+		}
 	}
 
-	filename := filepath.Base(c.FormValue("filename"))
+	filename := filepath.Base(r.FormValue("filename"))
 	filename = strings.TrimSuffix(filename, ".gz")
 	filename = strings.TrimSuffix(filename, ".json")
+	// Defensively URL-decode: some addon versions sent percent-encoded mission
+	// names (e.g. "Foo%20Bar_..."), which leaked into filenames and on-disk
+	// directories. Mirror the cleanup performed by migration v11.
+	filename = decodeFilename(filename)
 
 	op := Operation{
-		WorldName:   c.FormValue("worldName"),
-		MissionName: c.FormValue("missionName"),
+		WorldName:   r.FormValue("worldName"),
+		MissionName: r.FormValue("missionName"),
 		Filename:    filename,
 		Date:        time.Now().Format("2006-01-02"),
 		// Support old extension version tag or type
-		Tag: c.FormValue("tag") + c.FormValue("type"),
+		Tag: r.FormValue("tag") + r.FormValue("type"),
 	}
-	op.MissionDuration, err = strconv.ParseFloat(c.FormValue("missionDuration"), 64)
+	op.MissionDuration, err = strconv.ParseFloat(r.FormValue("missionDuration"), 64)
 	if err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if fs := r.FormValue("focusStart"); fs != "" {
+		v, err := strconv.ParseInt(fs, 10, 64)
+		if err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		op.FocusStart = &v
+	}
+	if fe := r.FormValue("focusEnd"); fe != "" {
+		v, err := strconv.ParseInt(fe, 10, 64)
+		if err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		op.FocusEnd = &v
+	}
+
+	// Validate focus range: both must be present or both absent, and start < end
+	if (op.FocusStart == nil) != (op.FocusEnd == nil) {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
+	}
+	if op.FocusStart != nil && op.FocusEnd != nil && *op.FocusStart >= *op.FocusEnd {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
 	}
 
 	if err = h.repoOperation.Store(ctx, &op); err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	form, err := c.FormFile("file")
+	form, _, err := r.FormFile("file")
 	if err != nil {
-		return echo.ErrBadRequest
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		return
 	}
-	file, err := form.Open()
-	if err != nil {
-		return err
-	}
-	defer file.Close()
+	defer form.Close()
 
 	// Peek at the first two bytes to detect gzip magic number (0x1f 0x8b)
-	br := bufio.NewReader(file)
+	br := bufio.NewReader(form)
 	header, err := br.Peek(2)
 	if err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	isGzipped := header[0] == 0x1f && header[1] == 0x8b
 
 	outFile, err := os.Create(filepath.Join(h.setting.Data, filename+".json.gz"))
 	if err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 	defer outFile.Close()
 
 	if isGzipped {
 		if _, err = io.Copy(outFile, br); err != nil {
-			return err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	} else {
 		gw := gzip.NewWriter(outFile)
 		if _, err = io.Copy(gw, br); err != nil {
-			return err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		if err = gw.Close(); err != nil {
-			return err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
@@ -314,17 +450,19 @@ func (h *Handler) StoreOperation(c echo.Context) error {
 		h.conversionTrigger.TriggerConversion(op.ID, op.Filename)
 	} else {
 		if err = h.repoOperation.UpdateConversionStatus(ctx, op.ID, ConversionStatusCompleted); err != nil {
-			return err
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 	}
 
-	return c.NoContent(http.StatusOK)
+	w.WriteHeader(http.StatusOK)
 }
 
-func (h *Handler) GetData(c echo.Context) error {
-	relativePath, err := paramPath(c, "*")
+func (h *Handler) GetData(w http.ResponseWriter, r *http.Request) {
+	relativePath, err := paramPathFromRequest(r, "path")
 	if err != nil {
-		return fmt.Errorf("clean path: %s: %w", err.Error(), ErrNotFound)
+		http.NotFound(w, r)
+		return
 	}
 	absolutePath := filepath.Join(h.setting.Data, relativePath)
 
@@ -334,38 +472,43 @@ func (h *Handler) GetData(c echo.Context) error {
 	if strings.HasSuffix(relativePath, ".json.gz") {
 		f, err := os.Open(absolutePath)
 		if err != nil {
-			return echo.ErrNotFound
+			http.NotFound(w, r)
+			return
 		}
 		defer f.Close()
 		var magic [2]byte
 		_, err = io.ReadFull(f, magic[:])
 		if err != nil {
-			return echo.ErrNotFound
+			http.NotFound(w, r)
+			return
 		}
 
-		c.Response().Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json")
 		if magic[0] == 0x1f && magic[1] == 0x8b {
-			c.Response().Header().Set("Content-Encoding", "gzip")
+			w.Header().Set("Content-Encoding", "gzip")
 		}
-		return c.File(absolutePath)
+		http.ServeFile(w, r, absolutePath)
+		return
 	}
 
 	if _, err := os.Stat(absolutePath); err != nil {
-		return echo.ErrNotFound
+		http.NotFound(w, r)
+		return
 	}
 
-	return c.File(absolutePath)
+	http.ServeFile(w, r, absolutePath)
 }
 
-func (h *Handler) GetMarker(c echo.Context) error {
+func (h *Handler) GetMarker(w http.ResponseWriter, r *http.Request) {
 	var (
-		ctx   = c.Request().Context()
-		color = c.Param("color")
+		ctx   = r.Context()
+		color = r.PathValue("color")
 	)
 
-	name, err := url.PathUnescape(c.Param("name"))
+	name, err := url.PathUnescape(r.PathValue("name"))
 	if err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// Deprecated: support old version
@@ -376,36 +519,86 @@ func (h *Handler) GetMarker(c echo.Context) error {
 
 	img, ct, err := h.repoMarker.Get(ctx, filepath.Base(name), color)
 	if err != nil {
-		return err
+		if errors.Is(err, ErrNotFound) {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
 	}
 
-	return c.Stream(http.StatusOK, ct, img)
+	w.Header().Set("Content-Type", ct)
+	io.Copy(w, img)
 }
 
-func (h *Handler) GetFont(c echo.Context) error {
-	fontstack := filepath.Base(c.Param("fontstack"))
-	rangeParam := filepath.Base(c.Param("range"))
+func (h *Handler) GetSprite(w http.ResponseWriter, r *http.Request) {
+	h.spriteOnce.Do(func() {
+		h.spriteFiles, h.spriteInitErr = maptool.GenerateSpriteBytes()
+	})
+	if h.spriteInitErr != nil {
+		http.Error(w, fmt.Sprintf("generate sprites: %v", h.spriteInitErr), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.PathValue("name")
+	data, ok := h.spriteFiles[name]
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	ct := "application/json"
+	if strings.HasSuffix(name, ".png") {
+		ct = "image/png"
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Write(data)
+}
+
+func (h *Handler) GetFont(w http.ResponseWriter, r *http.Request) {
+	fontstack := filepath.Base(r.PathValue("fontstack"))
+	rangeParam := filepath.Base(r.PathValue("range"))
 
 	absolutePath := filepath.Join(h.setting.Fonts, fontstack, rangeParam)
 
-	return c.File(absolutePath)
+	http.ServeFile(w, r, absolutePath)
 }
 
-func (h *Handler) GetMapTitle(c echo.Context) error {
-	relativePath, err := paramPath(c, "*")
+func (h *Handler) GetMapTile(w http.ResponseWriter, r *http.Request) {
+	relativePath, err := paramPathFromRequest(r, "path")
 	if err != nil {
-		return fmt.Errorf("clean path: %s: %w", err.Error(), ErrNotFound)
+		http.NotFound(w, r)
+		return
 	}
 
 	absolutePath := filepath.Join(h.setting.Maps, relativePath)
 
-	return c.File(absolutePath)
+	http.ServeFile(w, r, absolutePath)
 }
 
 // spaFileServer returns an http.Handler that serves static files from fsys,
 // falling back to index.html for paths that don't match a file (SPA routing).
+// The prefix is injected into index.html as window.__BASE_PATH__ so the
+// frontend SPA can discover its base URL at runtime.
 func spaFileServer(fsys fs.FS, prefix string) http.Handler {
 	handler := http.StripPrefix(prefix, http.FileServer(http.FS(fsys)))
+
+	// Pre-read index.html and inject the base path script tag once at startup.
+	var indexContent []byte
+	var indexModTime time.Time
+	if f, err := fsys.Open("index.html"); err == nil {
+		defer f.Close()
+		if stat, err := f.Stat(); err == nil {
+			indexModTime = stat.ModTime()
+		}
+		if raw, err := io.ReadAll(f); err == nil {
+			base := prefix + "/"
+			inject := fmt.Sprintf(`<base href=%q /><script>window.__BASE_PATH__=%q;</script>`, base, prefix)
+			// Inject right after <head> so <base> is parsed before any relative URLs
+			indexContent = bytes.Replace(raw, []byte("<head>"), []byte("<head>"+inject), 1)
+		}
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Strip the prefix so the FS lookup starts at the root
 		p := strings.TrimPrefix(r.URL.Path, prefix)
@@ -419,34 +612,25 @@ func spaFileServer(fsys fs.FS, prefix string) http.Handler {
 			}
 		}
 
-		// Fallback: serve index.html for SPA client-side routing.
-		// Read directly to avoid http.FileServer's redirect of /index.html → /
-		f, err := fsys.Open("index.html")
-		if err != nil {
+		// Fallback: serve index.html (with injected base path) for SPA routing.
+		if indexContent == nil {
 			http.NotFound(w, r)
 			return
 		}
-		defer f.Close()
-
-		stat, err := f.Stat()
-		if err != nil {
-			http.NotFound(w, r)
-			return
-		}
-
-		http.ServeContent(w, r, "index.html", stat.ModTime(), f.(io.ReadSeeker))
+		http.ServeContent(w, r, "index.html", indexModTime, bytes.NewReader(indexContent))
 	})
 }
 
-func (h *Handler) GetAmmo(c echo.Context) error {
+func (h *Handler) GetAmmo(w http.ResponseWriter, r *http.Request) {
 	var (
-		ctx  = c.Request().Context()
-		name = c.Param("name")
+		ctx  = r.Context()
+		name = r.PathValue("name")
 	)
 
 	name, err := url.PathUnescape(name)
 	if err != nil {
-		return err
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
 	}
 
 	// remote extension
@@ -461,14 +645,19 @@ func (h *Handler) GetAmmo(c echo.Context) error {
 
 	upath, err := h.repoAmmo.GetPath(ctx, filepath.Base(name))
 	if err != nil {
-		return err
+		if errors.Is(err, ErrNotFound) {
+			http.NotFound(w, r)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		return
 	}
 
-	return c.File(upath)
+	http.ServeFile(w, r, upath)
 }
 
-func paramPath(c echo.Context, param string) (string, error) {
-	urlPath, err := url.PathUnescape(c.Param(param))
+func paramPathFromRequest(r *http.Request, param string) (string, error) {
+	urlPath, err := url.PathUnescape(r.PathValue(param))
 	if err != nil {
 		return "", fmt.Errorf("path unescape: %w", err)
 	}

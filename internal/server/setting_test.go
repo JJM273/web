@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
@@ -177,6 +178,33 @@ func TestNewSetting_ConfigFile(t *testing.T) {
 		assert.Equal(t, "After Action Reviews", setting.Customize.HeaderSubtitle)
 	})
 
+	t.Run("cssOverrides from config file", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := filepath.Join(dir, "setting.json")
+		configContent := `{
+			"secret": "valid-secret-value",
+			"customize": {
+				"cssOverrides": {
+					"--accent-blue": "#FF6600",
+					"--side-blufor": "#00FF88"
+				}
+			}
+		}`
+		err := os.WriteFile(configPath, []byte(configContent), 0644)
+		require.NoError(t, err)
+
+		viper.Reset()
+		viper.AddConfigPath(dir)
+
+		setting, err := NewSetting()
+		require.NoError(t, err)
+
+		assert.Equal(t, map[string]string{
+			"--accent-blue": "#FF6600",
+			"--side-blufor": "#00FF88",
+		}, setting.Customize.CSSOverrides)
+	})
+
 	t.Run("conversion values from config", func(t *testing.T) {
 		dir := t.TempDir()
 		configPath := filepath.Join(dir, "setting.json")
@@ -267,14 +295,85 @@ func TestNewSetting_EnvVars(t *testing.T) {
 		viper.Reset()
 		viper.AddConfigPath(dir)
 
+		dbPath := filepath.Join(t.TempDir(), "db", "custom.db")
 		os.Setenv("OCAP_SECRET", "env-secret")
-		os.Setenv("OCAP_DB", "/data/custom.db")
+		os.Setenv("OCAP_DB", dbPath)
 		defer os.Unsetenv("OCAP_SECRET")
 		defer os.Unsetenv("OCAP_DB")
 
 		setting, err := NewSetting()
 		require.NoError(t, err)
-		assert.Equal(t, "/data/custom.db", setting.DB)
+		assert.Equal(t, dbPath, setting.DB)
+		_, err = os.Stat(filepath.Dir(dbPath))
+		require.NoError(t, err, "database directory should have been created")
+	})
+
+	t.Run("OCAP_HTTPSERVER_READTIMEOUT env var", func(t *testing.T) {
+		viper.Reset()
+		viper.AddConfigPath(dir)
+
+		os.Setenv("OCAP_HTTPSERVER_READTIMEOUT", "60s")
+		defer os.Unsetenv("OCAP_HTTPSERVER_READTIMEOUT")
+
+		setting, err := NewSetting()
+		require.NoError(t, err)
+		assert.Equal(t, 60*time.Second, setting.HttpServer.ReadTimeout)
+	})
+
+	t.Run("OCAP_CUSTOMIZE_CSSOVERRIDES env var", func(t *testing.T) {
+		viper.Reset()
+		viper.AddConfigPath(dir)
+
+		os.Setenv("OCAP_SECRET", "env-secret")
+		os.Setenv("OCAP_CUSTOMIZE_CSSOVERRIDES", `{"--accent-blue":"#FF6600","--bg-dark":"#111"}`)
+		defer os.Unsetenv("OCAP_SECRET")
+		defer os.Unsetenv("OCAP_CUSTOMIZE_CSSOVERRIDES")
+
+		setting, err := NewSetting()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]string{
+			"--accent-blue": "#FF6600",
+			"--bg-dark":     "#111",
+		}, setting.Customize.CSSOverrides)
+	})
+
+	t.Run("OCAP_CUSTOMIZE_CSSOVERRIDES env var overrides config file", func(t *testing.T) {
+		// Config file has cssOverrides; env var should take precedence
+		dirOverride := t.TempDir()
+		err := os.WriteFile(filepath.Join(dirOverride, "setting.json"), []byte(`{
+			"secret": "env-secret",
+			"customize": {
+				"cssOverrides": {"--bg-dark": "#000", "--accent-primary": "#aaa"}
+			}
+		}`), 0644)
+		require.NoError(t, err)
+
+		viper.Reset()
+		viper.AddConfigPath(dirOverride)
+
+		os.Setenv("OCAP_SECRET", "env-secret")
+		os.Setenv("OCAP_CUSTOMIZE_CSSOVERRIDES", `{"--bg-dark":"#fff"}`)
+		defer os.Unsetenv("OCAP_SECRET")
+		defer os.Unsetenv("OCAP_CUSTOMIZE_CSSOVERRIDES")
+
+		setting, err := NewSetting()
+		require.NoError(t, err)
+		// Env var completely replaces config file value
+		assert.Equal(t, map[string]string{"--bg-dark": "#fff"}, setting.Customize.CSSOverrides)
+	})
+
+	t.Run("OCAP_CUSTOMIZE_CSSOVERRIDES invalid JSON fails", func(t *testing.T) {
+		viper.Reset()
+		viper.AddConfigPath(dir)
+
+		os.Setenv("OCAP_SECRET", "env-secret")
+		os.Setenv("OCAP_CUSTOMIZE_CSSOVERRIDES", `not-json`)
+		defer os.Unsetenv("OCAP_SECRET")
+		defer os.Unsetenv("OCAP_CUSTOMIZE_CSSOVERRIDES")
+
+		_, err := NewSetting()
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "OCAP_CUSTOMIZE_CSSOVERRIDES")
 	})
 
 	t.Run("nested env vars with underscore", func(t *testing.T) {
@@ -282,17 +381,123 @@ func TestNewSetting_EnvVars(t *testing.T) {
 		viper.AddConfigPath(dir)
 
 		os.Setenv("OCAP_SECRET", "env-secret")
-		os.Setenv("CONVERSION_ENABLED", "true")
-		os.Setenv("CONVERSION_CHUNKSIZE", "600")
+		os.Setenv("OCAP_CONVERSION_ENABLED", "true")
+		os.Setenv("OCAP_CONVERSION_CHUNKSIZE", "600")
 		defer os.Unsetenv("OCAP_SECRET")
-		defer os.Unsetenv("CONVERSION_ENABLED")
-		defer os.Unsetenv("CONVERSION_CHUNKSIZE")
+		defer os.Unsetenv("OCAP_CONVERSION_ENABLED")
+		defer os.Unsetenv("OCAP_CONVERSION_CHUNKSIZE")
 
 		setting, err := NewSetting()
 		require.NoError(t, err)
 		assert.True(t, setting.Conversion.Enabled)
 		assert.Equal(t, uint32(600), setting.Conversion.ChunkSize)
 	})
+}
+
+func TestSetting_AuthSessionTTL(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "setting.json")
+	err := os.WriteFile(configPath, []byte(`{
+		"secret": "test-secret-value",
+		"auth": {
+			"sessionTTL": "2h"
+		}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, 2*time.Hour, setting.Auth.SessionTTL)
+}
+
+func TestSetting_AuthSessionTTL_Default(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "setting.json")
+	err := os.WriteFile(configPath, []byte(`{"secret": "test-secret-value"}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, 24*time.Hour, setting.Auth.SessionTTL)
+}
+
+func TestSetting_AuthAdminSteamIDs(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "setting.json")
+	err := os.WriteFile(configPath, []byte(`{
+		"secret": "test-secret-value",
+		"auth": {
+			"adminSteamIds": ["76561198012345678", "76561198087654321"]
+		}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{"76561198012345678", "76561198087654321"}, setting.Auth.AdminSteamIDs)
+}
+
+func TestSetting_AuthSteamAPIKey(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "setting.json")
+	err := os.WriteFile(configPath, []byte(`{
+		"secret": "test-secret-value",
+		"auth": {
+			"steamApiKey": "ABCDEF0123456789"
+		}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "ABCDEF0123456789", setting.Auth.SteamAPIKey)
+}
+
+func TestSetting_HttpServer(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "setting.json")
+	err := os.WriteFile(configPath, []byte(`{
+		"secret": "test-secret-value",
+		"httpServer": {
+			"readTimeout": "110s",
+			"readHeaderTimeout": "120s",
+			"writeTimeout": "130s",
+			"idleTimeout": "140s"
+		}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, 110*time.Second, setting.HttpServer.ReadTimeout)
+	assert.Equal(t, 120*time.Second, setting.HttpServer.ReadHeaderTimeout)
+	assert.Equal(t, 130*time.Second, setting.HttpServer.WriteTimeout)
+	assert.Equal(t, 140*time.Second, setting.HttpServer.IdleTimeout)
 }
 
 func TestNewSetting_NoConfigFile(t *testing.T) {
@@ -302,4 +507,89 @@ func TestNewSetting_NoConfigFile(t *testing.T) {
 
 	_, err := NewSetting()
 	assert.Error(t, err)
+}
+
+func TestValidateAuthConfig(t *testing.T) {
+	t.Run("valid modes accepted", func(t *testing.T) {
+		for _, mode := range []string{"public", "steam", "steamAllowlist"} {
+			err := validateAuthConfig(Auth{Mode: mode})
+			assert.NoError(t, err, "mode %q should be valid", mode)
+		}
+		err := validateAuthConfig(Auth{Mode: "password", Password: "secret"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid mode returns error", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "bogus"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+		assert.Contains(t, err.Error(), "not valid")
+	})
+
+	t.Run("password mode without password", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "password"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "auth.password")
+	})
+
+	t.Run("removed modes are rejected", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "steamGroup"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+
+		err = validateAuthConfig(Auth{Mode: "squadXml"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+	})
+}
+
+func TestNewSetting_AuthModeDefault(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{"secret": "test-secret-value"}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "public", setting.Auth.Mode)
+}
+
+func TestNewSetting_AuthModeInvalid(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "invalid"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	_, err = NewSetting()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid")
+}
+
+func TestNewSetting_AuthPasswordMode(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "password", "password": "hunter2"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "password", setting.Auth.Mode)
+	assert.Equal(t, "hunter2", setting.Auth.Password)
 }

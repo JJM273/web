@@ -1,4 +1,4 @@
-FROM node:25-alpine AS frontend
+FROM --platform=$BUILDPLATFORM node:26-alpine AS frontend
 WORKDIR /app
 COPY ui/package.json ui/package-lock.json ./
 RUN npm ci
@@ -15,12 +15,28 @@ COPY --from=frontend /frontend-dist ./internal/frontend/dist
 ARG build_version
 ARG build_commit
 RUN go build -ldflags "-X github.com/OCAP2/web/internal/server.BuildVersion=$build_version -X github.com/OCAP2/web/internal/server.BuildDate=`date -u +'%Y-%m-%dT%H:%M:%SZ'` -X github.com/OCAP2/web/internal/server.BuildCommit=$build_commit" -o app ./cmd/ocap-webserver
+ARG PMTILES_VERSION=1.30.0
+RUN go install "github.com/protomaps/go-pmtiles@v${PMTILES_VERSION}"
 
 FROM alpine:3.23
+ARG VARIANT=slim
 WORKDIR /usr/local/ocap
 RUN adduser -D -h /home/container container && \
-    mkdir -p /etc/ocap /usr/local/ocap/data /var/lib/ocap/db /var/lib/ocap/maps /var/lib/ocap/data && \
-    echo '{}' > /etc/ocap/setting.json
+    mkdir -p /usr/local/ocap/data /var/lib/ocap/db /var/lib/ocap/maps /var/lib/ocap/data
+
+# Full variant: install maptool dependencies (GDAL, tippecanoe)
+ARG TIPPECANOE_VERSION=2.79.0
+RUN if [ "$VARIANT" = "full" ]; then \
+      apk add --no-cache gdal-tools gdal-driver-jpeg gdal-driver-png py3-gdal sqlite-libs zlib && \
+      apk add --no-cache --virtual .build-deps build-base bash git sqlite-dev zlib-dev && \
+      wget -qO /tmp/tippecanoe.tar.gz "https://github.com/felt/tippecanoe/archive/refs/tags/${TIPPECANOE_VERSION}.tar.gz" && \
+      tar -xzf /tmp/tippecanoe.tar.gz -C /tmp && \
+      cd /tmp/tippecanoe-${TIPPECANOE_VERSION} && make -j$(nproc) && make install && \
+      rm -rf /tmp/tippecanoe* && \
+      apk del .build-deps; \
+    fi
+RUN --mount=from=builder,source=/go/bin/go-pmtiles,target=/tmp/pmtiles \
+    if [ "$VARIANT" = "full" ]; then cp /tmp/pmtiles /usr/local/bin/pmtiles; fi
 
 ENV OCAP_AMMO=/usr/local/ocap/ammo \
     OCAP_DATA=/var/lib/ocap/data \

@@ -31,7 +31,6 @@ type OperationRepo interface {
 type Worker struct {
 	repo        OperationRepo
 	dataDir     string
-	converter   *storage.Converter
 	engine      storage.Engine
 	interval    time.Duration
 	batchSize   int
@@ -68,7 +67,6 @@ func NewWorker(repo OperationRepo, cfg Config) *Worker {
 	return &Worker{
 		repo:        repo,
 		dataDir:     cfg.DataDir,
-		converter:   storage.NewConverter(cfg.ChunkSize),
 		engine:      storage.NewProtobufEngine(cfg.DataDir),
 		interval:    cfg.Interval,
 		batchSize:   cfg.BatchSize,
@@ -196,8 +194,8 @@ func (w *Worker) convertOperation(ctx context.Context, op server.Operation) erro
 	if err != nil {
 		slog.Warn("failed to read manifest for duration", "error", err)
 	} else {
-		// Calculate duration: frameCount * captureDelayMs / 1000 (to seconds)
-		durationSeconds := float64(manifest.FrameCount) * float64(manifest.CaptureDelayMs) / 1000.0
+		// Calculate duration: (endFrame + 1) * captureDelayMs / 1000 (to seconds)
+		durationSeconds := float64(manifest.EndFrame+1) * float64(manifest.CaptureDelayMs) / 1000.0
 		if err := w.repo.UpdateMissionDuration(ctx, op.ID, durationSeconds); err != nil {
 			slog.Warn("failed to update mission duration", "error", err)
 		}

@@ -3,6 +3,8 @@ package maptool
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"math"
 	"os"
 	"path/filepath"
 )
@@ -16,76 +18,142 @@ const (
 	MapStatusComplete   MapStatus = "complete"
 )
 
-type MapInfo struct {
-	Name       string    `json:"name"`
-	WorldSize  int       `json:"worldSize,omitempty"`
-	Status     MapStatus `json:"status"`
-	HasPreview bool      `json:"hasPreview,omitempty"`
+type MapElevation struct {
+	Min    float64 `json:"min"`
+	Max    float64 `json:"max"`
+	Avg    float64 `json:"avg"`
+	StdDev float64 `json:"stddev"`
 }
 
-// fileExistsIn checks for a file in subdirectory first, then root.
-func fileExistsIn(worldDir, subdir, filename string) bool {
-	if _, err := os.Stat(filepath.Join(worldDir, subdir, filename)); err == nil {
-		return true
+type MapInfo struct {
+	Name          string             `json:"name"`
+	WorldSize     int                `json:"worldSize,omitempty"`
+	Status        MapStatus          `json:"status"`
+	LastError     string             `json:"lastError,omitempty"`
+	HasPreview    bool               `json:"hasPreview,omitempty"`
+	Elevation     *MapElevation      `json:"elevation,omitempty"`
+	FeatureLayers []string           `json:"featureLayers,omitempty"`
+	Files         map[string]float64 `json:"files,omitempty"`
+}
+
+// fileSizeIn checks for a file in subdirectory first, then root.
+// Returns the size in MB and true if found, or 0 and false if not.
+func fileSizeIn(worldDir, subdir, filename string) (float64, bool) {
+	for _, dir := range []string{filepath.Join(worldDir, subdir), worldDir} {
+		if fi, err := os.Stat(filepath.Join(dir, filename)); err == nil {
+			return float64(fi.Size()) / (1024 * 1024), true
+		}
 	}
-	if _, err := os.Stat(filepath.Join(worldDir, filename)); err == nil {
-		return true
-	}
-	return false
+	return 0, false
 }
 
 func ScanMaps(mapsDir string) ([]MapInfo, error) {
 	entries, err := os.ReadDir(mapsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil
+			return []MapInfo{}, nil
 		}
 		return nil, fmt.Errorf("read maps dir: %w", err)
 	}
 
-	var maps []MapInfo
+	type fileCheck struct {
+		name   string
+		subdir string
+	}
+	// Critical files determine map status (complete/incomplete/none).
+	criticalFiles := []fileCheck{
+		{"satellite.pmtiles", "tiles"},
+		{"features.pmtiles", "tiles"},
+		{"color-relief.json", "styles"},
+		{"map.json", ""},
+	}
+	// Additional files to report sizes for.
+	extraFiles := []fileCheck{
+		{"heightmap.pmtiles", "tiles"},
+		{"hillshade.pmtiles", "tiles"},
+		{"color-relief.pmtiles", "tiles"},
+	}
+
+	maps := []MapInfo{}
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
 		worldDir := filepath.Join(mapsDir, entry.Name())
-		info := MapInfo{Name: entry.Name()}
+		info := MapInfo{Name: entry.Name(), Files: make(map[string]float64)}
 
-		hasSatellite := fileExistsIn(worldDir, "tiles", "satellite.pmtiles")
-		hasFeatures := fileExistsIn(worldDir, "tiles", "features.pmtiles")
-		hasStyle := fileExistsIn(worldDir, "styles", "color-relief.json")
-		hasMapJSON := false
+		found := 0
+		for _, fc := range criticalFiles {
+			if sizeMB, ok := fileSizeIn(worldDir, fc.subdir, fc.name); ok {
+				found++
+				info.Files[fc.name] = math.Round(sizeMB*100) / 100
+			}
+		}
+		for _, fc := range extraFiles {
+			if sizeMB, ok := fileSizeIn(worldDir, fc.subdir, fc.name); ok {
+				info.Files[fc.name] = math.Round(sizeMB*100) / 100
+			}
+		}
 
-		mapJSONPath := filepath.Join(worldDir, "map.json")
-		if data, err := os.ReadFile(mapJSONPath); err == nil {
-			hasMapJSON = true
+		// meta.json (pipeline output) is the primary source — has worldSize,
+		// featureLayers, and elevation stats.
+		metaJSONPath := filepath.Join(worldDir, "meta.json")
+		if data, err := os.ReadFile(metaJSONPath); err == nil {
 			var meta struct {
-				WorldSize int `json:"worldSize"`
+				WorldSize     int             `json:"worldSize"`
+				FeatureLayers []string        `json:"featureLayers"`
+				Elevation     *MapElevation   `json:"elevation"`
 			}
 			if json.Unmarshal(data, &meta) == nil {
 				info.WorldSize = meta.WorldSize
+				info.FeatureLayers = meta.FeatureLayers
+				info.Elevation = meta.Elevation
+			}
+		}
+		// Fallback to map.json for worldSize if meta.json didn't provide it.
+		if info.WorldSize == 0 {
+			mapJSONPath := filepath.Join(worldDir, "map.json")
+			if data, err := os.ReadFile(mapJSONPath); err == nil {
+				var mj struct {
+					WorldSize int `json:"worldSize"`
+				}
+				if json.Unmarshal(data, &mj) == nil {
+					info.WorldSize = mj.WorldSize
+				}
 			}
 		}
 
-		// Check for any preview thumbnail
+		// Check for any preview thumbnail.
 		if _, err := os.Stat(filepath.Join(worldDir, "preview_256.png")); err == nil {
 			info.HasPreview = true
-		}
-
-		found := 0
-		for _, ok := range []bool{hasSatellite, hasFeatures, hasStyle, hasMapJSON} {
-			if ok {
-				found++
-			}
 		}
 
 		switch {
 		case found == 0:
 			info.Status = MapStatusNone
-		case found == 4:
+		case found == len(criticalFiles):
 			info.Status = MapStatusComplete
 		default:
 			info.Status = MapStatusIncomplete
+		}
+
+		// Read persisted error info for failed/incomplete maps.
+		if info.Status == MapStatusNone || info.Status == MapStatusIncomplete {
+			errorJSONPath := filepath.Join(worldDir, "error.json")
+			if data, err := os.ReadFile(errorJSONPath); err == nil {
+				var errInfo struct {
+					Error string `json:"error"`
+				}
+				if err := json.Unmarshal(data, &errInfo); err != nil {
+					log.Printf("WARNING: failed to parse error.json for %s: %v", entry.Name(), err)
+				} else if errInfo.Error != "" {
+					info.LastError = errInfo.Error
+				}
+			}
+		}
+
+		if len(info.Files) == 0 {
+			info.Files = nil
 		}
 
 		maps = append(maps, info)

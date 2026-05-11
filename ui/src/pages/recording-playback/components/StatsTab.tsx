@@ -1,9 +1,9 @@
 import { createMemo, For, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import type { Side } from "../../../data/types";
-import { Unit } from "../../../playback/entities/unit";
-import { SIDE_COLORS_UI, SIDE_BG_COLORS } from "../../../config/side-colors";
+import { SIDE_COLORS_UI, SIDE_BG_COLORS } from "../../../config/sideColors";
 import { useEngine } from "../../../hooks/useEngine";
+import { useCustomize } from "../../../hooks/useCustomize";
 import { useI18n } from "../../../hooks/useLocale";
 import styles from "./SidePanel.module.css";
 
@@ -29,11 +29,14 @@ interface LeaderboardEntry {
   side: Side;
   kills: number;
   deaths: number;
+  vehicleKills: number;
 }
 
 export function StatsTab(): JSX.Element {
   const engine = useEngine();
+  const customize = useCustomize();
   const { t } = useI18n();
+  const showPlayerKillCount = (): boolean => !customize().disableKillCount;
 
   // Frame-aware kill/death counts
   const killDeathCounts = createMemo(() =>
@@ -60,15 +63,24 @@ export function StatsTab(): JSX.Element {
 
   const leaderboard = createMemo((): LeaderboardEntry[] => {
     const units = engine.entityManager.getUnits();
-    const { kills, deaths } = killDeathCounts();
+    const { kills, deaths, vehicleKills } = killDeathCounts();
     return units
-      .filter((u) => (kills.get(u.id) ?? 0) > 0 || (deaths.get(u.id) ?? 0) > 0)
-      .sort((a, b) => (kills.get(b.id) ?? 0) - (kills.get(a.id) ?? 0))
+      .filter((u) => u.isPlayer && (
+        (kills.get(u.id) ?? 0) > 0 ||
+        (deaths.get(u.id) ?? 0) > 0 ||
+        (vehicleKills.get(u.id) ?? 0) > 0
+      ))
+      .sort((a, b) => {
+        const diff = (kills.get(b.id) ?? 0) - (kills.get(a.id) ?? 0);
+        if (diff !== 0) return diff;
+        return (vehicleKills.get(b.id) ?? 0) - (vehicleKills.get(a.id) ?? 0);
+      })
       .map((u) => ({
         name: u.name || `Unit ${u.id}`,
         side: u.side,
         kills: kills.get(u.id) ?? 0,
         deaths: deaths.get(u.id) ?? 0,
+        vehicleKills: vehicleKills.get(u.id) ?? 0,
       }));
   });
 
@@ -81,7 +93,6 @@ export function StatsTab(): JSX.Element {
           <div class={styles.forceSummary} style={{ "margin-top": "8px" }}>
             <For each={sideStats()}>
               {(stat) => {
-                const pct = () => stat.total > 0 ? (stat.alive / stat.total) * 100 : 0;
                 return (
                   <div
                     class={styles.forceCard}
@@ -90,37 +101,45 @@ export function StatsTab(): JSX.Element {
                       border: `1px solid ${SIDE_COLORS_UI[stat.side]}20`,
                     }}
                   >
-                    <div
-                      class={styles.forceCardLabel}
-                      style={{ color: SIDE_COLORS_UI[stat.side] }}
-                    >
-                      {SIDE_LABELS[stat.side]}
-                    </div>
-                    <div class={styles.forceCardRow}>
-                      <span style={{ "font-size": "10px", color: "var(--text-dimmer)" }}>{t("strength")}</span>
-                      <span style={{ "font-size": "11px", "font-family": "var(--font-mono)" }}>
-                        <span style={{ color: "var(--accent-green)" }}>{stat.alive}</span>
-                        <span style={{ opacity: 0.4 }}>/{stat.total}</span>
+                    <div class={styles.forceCardHeader}>
+                      <span
+                        class={styles.forceCardDot}
+                        style={{ background: SIDE_COLORS_UI[stat.side] }}
+                      />
+                      <span
+                        class={styles.forceCardLabel}
+                        style={{ color: SIDE_COLORS_UI[stat.side] }}
+                      >
+                        {SIDE_LABELS[stat.side]}
                       </span>
                     </div>
-                    <div class={styles.forceStrengthBar}>
-                      <div
-                        class={styles.forceStrengthFill}
-                        style={{
-                          width: pct() + "%",
-                          background: SIDE_COLORS_UI[stat.side],
-                        }}
-                      />
-                    </div>
-                    <div class={styles.forceStats}>
-                      <div style={{ "text-align": "center" }}>
-                        <div class={styles.forceStatNum} style={{ color: "var(--accent-red)" }}>
+                    <div class={styles.forceStatGrid}>
+                      <div class={styles.forceStatPill}>
+                        <div class={`${styles.forceStatNum} ${styles.forceStatNumTotal}`}>
+                          {stat.total}
+                        </div>
+                        <div class={styles.forceStatLabel}>{t("total")}</div>
+                      </div>
+                      <div class={styles.forceStatPill}>
+                        <div class={`${styles.forceStatNum} ${styles.forceStatNumAlive}`}>
+                          {stat.alive}
+                        </div>
+                        <div class={styles.forceStatLabel}>{t("alive")}</div>
+                      </div>
+                      <div class={styles.forceStatPill}>
+                        <div
+                          class={styles.forceStatNum}
+                          classList={{ [styles.forceStatNumKills]: stat.kills > 0 }}
+                        >
                           {stat.kills}
                         </div>
                         <div class={styles.forceStatLabel}>{t("kills_label")}</div>
                       </div>
-                      <div style={{ "text-align": "center" }}>
-                        <div class={styles.forceStatNum} style={{ color: "var(--accent-orange)" }}>
+                      <div class={styles.forceStatPill}>
+                        <div
+                          class={styles.forceStatNum}
+                          classList={{ [styles.forceStatNumDeaths]: stat.deaths > 0 }}
+                        >
                           {stat.deaths}
                         </div>
                         <div class={styles.forceStatLabel}>{t("deaths_label")}</div>
@@ -134,7 +153,7 @@ export function StatsTab(): JSX.Element {
         </div>
 
         {/* Leaderboard */}
-        <Show when={leaderboard().length > 0}>
+        <Show when={showPlayerKillCount() && leaderboard().length > 0}>
           <div>
             <div class={styles.statsLabel}>{t("leaderboard")}</div>
             <div class={styles.leaderboard} style={{ "margin-top": "8px" }}>
@@ -148,6 +167,9 @@ export function StatsTab(): JSX.Element {
                 </span>
                 <span class={styles.leaderboardKills} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
                   K
+                </span>
+                <span class={styles.leaderboardVehicleKills} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
+                  VK
                 </span>
                 <span class={styles.leaderboardDeaths} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
                   D
@@ -167,6 +189,7 @@ export function StatsTab(): JSX.Element {
                       {entry.name}
                     </span>
                     <span class={styles.leaderboardKills}>{entry.kills}</span>
+                    <span class={styles.leaderboardVehicleKills}>{entry.vehicleKills}</span>
                     <span class={styles.leaderboardDeaths}>{entry.deaths}</span>
                   </div>
                 )}

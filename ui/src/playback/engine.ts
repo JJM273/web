@@ -1,20 +1,20 @@
 import { createSignal, type Accessor } from "solid-js";
 
-import type { Manifest, EntityDef, EventDef } from "../data/types";
+import type { Manifest, EventDef } from "../data/types";
 import type { TimeConfig } from "./time";
-import type { ChunkManager } from "../data/chunk-manager";
+import type { ChunkManager } from "../data/chunkManager";
 import type { MapRenderer } from "../renderers/renderer.interface";
 import type { EntitySnapshot } from "./types";
-import type { GameEvent } from "./events/game-event";
-import type { CounterState } from "./events/counter-event";
-import { EntityManager } from "./entity-manager";
-import { EventManager } from "./event-manager";
-import { HitKilledEvent } from "./events/hit-killed-event";
-import { ConnectEvent } from "./events/connect-event";
-import { EndMissionEvent } from "./events/end-mission-event";
-import { GeneralMissionEvent } from "./events/general-event";
-import { CapturedEvent } from "./events/captured-event";
-import { TerminalHackEvent } from "./events/terminal-hack-event";
+import type { GameEvent } from "./events/gameEvent";
+import type { CounterState } from "./events/counterEvent";
+import { EntityManager } from "./entityManager";
+import { EventManager } from "./eventManager";
+import { HitKilledEvent } from "./events/hitKilledEvent";
+import { ConnectEvent } from "./events/connectEvent";
+import { EndMissionEvent } from "./events/endMissionEvent";
+import { GeneralMissionEvent } from "./events/generalEvent";
+import { CapturedEvent } from "./events/capturedEvent";
+import { TerminalHackEvent } from "./events/terminalHackEvent";
 import { Unit } from "./entities/unit";
 import { Vehicle } from "./entities/vehicle";
 
@@ -45,7 +45,8 @@ function createGameEvent(def: EventDef): GameEvent | null {
       return new GeneralMissionEvent(def.frameNum, id, def.message);
     case "captured":
     case "capturedFlag":
-      return new CapturedEvent(def.frameNum, def.type, id, def.unitName, def.objectType);
+    case "contested":
+      return new CapturedEvent(def.frameNum, def.type, id, def.unitName, def.objectType, def.side, def.position);
     case "terminalHackStarted":
     case "terminalHackCanceled":
       return new TerminalHackEvent(def.frameNum, def.type, id, def.unitName);
@@ -108,7 +109,11 @@ export class PlaybackEngine {
   private _setCaptureDelayMs: (v: number) => void;
 
   // ─── Playback loop state ───
-  private playbackTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Max delta (ms) before treating a gap as a background-tab resume. */
+  private static readonly MAX_FRAME_DELTA_MS = 100;
+  private animFrameId: number | null = null;
+  private lastTickTime = 0;
+  private accumulatedMs = 0;
 
   constructor(renderer: MapRenderer) {
     this.renderer = renderer;
@@ -203,7 +208,7 @@ export class PlaybackEngine {
     // Don't play past the end
     if (this._currentFrame() >= this._endFrame()) return;
     this._setIsPlaying(true);
-    this.scheduleNextTick();
+    this.startLoop();
   }
 
   pause(): void {
@@ -245,7 +250,7 @@ export class PlaybackEngine {
     // Restart timer with new interval if playing
     if (this._isPlaying()) {
       this.clearTimer();
-      this.scheduleNextTick();
+      this.startLoop();
     }
   }
 
@@ -255,6 +260,11 @@ export class PlaybackEngine {
     if (snap) {
       this.renderer.setView(snap.position);
     }
+  }
+
+  /** Pan the camera to an Arma world position. */
+  panToPosition(pos: [number, number]): void {
+    this.renderer.setView(pos);
   }
 
   followEntity(id: number): void {
@@ -271,7 +281,7 @@ export class PlaybackEngine {
   /**
    * Populate entities and events from a manifest, and wire up the chunk manager.
    */
-  loadOperation(manifest: Manifest, chunkManager?: ChunkManager | null): void {
+  loadRecording(manifest: Manifest, chunkManager?: ChunkManager | null): void {
     // Reset state
     this.clearTimer();
     this._setIsPlaying(false);
@@ -323,7 +333,7 @@ export class PlaybackEngine {
 
     // Set endFrame AFTER events are populated so reactive computations
     // (e.g. timeline event ticks) see the events when they re-run.
-    this._setEndFrame(manifest.frameCount - 1);
+    this._setEndFrame(manifest.endFrame);
 
     // Initial snapshot computation
     this.computeSnapshots(0);
@@ -341,20 +351,41 @@ export class PlaybackEngine {
 
   // ─── Playback loop ───
 
-  private scheduleNextTick(): void {
-    const interval = this._captureDelayMs() / this._playbackSpeed();
-    this.playbackTimer = setTimeout(() => this.tick(), interval);
+  private startLoop(): void {
+    this.accumulatedMs = 0;
+    this.lastTickTime = performance.now();
+    this.animFrameId = requestAnimationFrame(() => this.onFrame());
   }
 
   private clearTimer(): void {
-    if (this.playbackTimer !== null) {
-      clearTimeout(this.playbackTimer);
-      this.playbackTimer = null;
+    if (this.animFrameId !== null) {
+      cancelAnimationFrame(this.animFrameId);
+      this.animFrameId = null;
     }
   }
 
-  private tick(): void {
+  private onFrame(): void {
     if (!this._isPlaying()) return;
+
+    const now = performance.now();
+    let delta = now - this.lastTickTime;
+    this.lastTickTime = now;
+
+    // Background tab: rAF pauses, delta is huge on resume. Discard it.
+    if (delta > PlaybackEngine.MAX_FRAME_DELTA_MS) {
+      delta = 0;
+    }
+
+    this.accumulatedMs += delta;
+    const idealInterval = this._captureDelayMs() / this._playbackSpeed();
+    const framesToAdvance = Math.floor(this.accumulatedMs / idealInterval);
+
+    if (framesToAdvance <= 0) {
+      this.animFrameId = requestAnimationFrame(() => this.onFrame());
+      return;
+    }
+
+    this.accumulatedMs -= framesToAdvance * idealInterval;
 
     const frame = this._currentFrame();
     const end = this._endFrame();
@@ -365,7 +396,7 @@ export class PlaybackEngine {
       return;
     }
 
-    const nextFrame = frame + 1;
+    const nextFrame = Math.min(frame + framesToAdvance, end);
     this._setCurrentFrame(nextFrame);
 
     // Ensure current chunk is loaded (async — the onChunkLoaded callback
@@ -399,8 +430,8 @@ export class PlaybackEngine {
       return;
     }
 
-    // Schedule next tick
-    this.scheduleNextTick();
+    // Schedule next frame
+    this.animFrameId = requestAnimationFrame(() => this.onFrame());
   }
 
   // ─── Snapshot computation ───
@@ -432,13 +463,15 @@ export class PlaybackEngine {
           const state = states[frameInChunk];
           let side: import("../data/types").Side | null = entity instanceof Unit ? (state.side ?? entity.side) : null;
           let isPlayer = entity instanceof Unit ? entity.isPlayer : false;
-          if (entity instanceof Vehicle && state.crewIds?.length) {
-            entity.setCrew(state.crewIds);
-            side = entity.getSideFromCrew((id) => this.entityManager.getEntity(id));
-            isPlayer = state.crewIds.some((id) => {
-              const crew = this.entityManager.getEntity(id);
-              return crew instanceof Unit && crew.isPlayer;
-            });
+          if (entity instanceof Vehicle) {
+            entity.setCrew(state.crewIds?.length ? state.crewIds : []);
+            if (state.crewIds?.length) {
+              side = entity.getSideFromCrew((id) => this.entityManager.getEntity(id));
+              isPlayer = state.crewIds.some((id) => {
+                const crew = this.entityManager.getEntity(id);
+                return crew instanceof Unit && crew.isPlayer;
+              });
+            }
           }
           const snapshot: EntitySnapshot = {
             id: entity.id,
@@ -452,8 +485,8 @@ export class PlaybackEngine {
             isInVehicle: state.isInVehicle ?? false,
           };
           if (entity instanceof Unit) {
-            const target = entity.firedOnFrame(frame);
-            if (target) snapshot.firedTarget = target;
+            const targets = entity.firedOnFrame(frame);
+            if (targets) snapshot.firedTargets = targets;
           }
           snapshots.set(entity.id, snapshot);
           continue;
@@ -467,8 +500,8 @@ export class PlaybackEngine {
         // For vehicles, derive side and isPlayer from crew in the position data
         if (entity instanceof Vehicle) {
           const state = entity.positions?.[relativeFrame];
+          entity.setCrew(state?.crewIds?.length ? state.crewIds : []);
           if (state?.crewIds?.length) {
-            entity.setCrew(state.crewIds);
             snap.side = entity.getSideFromCrew((id) => this.entityManager.getEntity(id));
             snap.isPlayer = state.crewIds.some((id) => {
               const crew = this.entityManager.getEntity(id);
@@ -477,8 +510,8 @@ export class PlaybackEngine {
           }
         }
         if (entity instanceof Unit) {
-          const target = entity.firedOnFrame(frame);
-          if (target) snap.firedTarget = target;
+          const targets = entity.firedOnFrame(frame);
+          if (targets) snap.firedTargets = targets;
         }
         snapshots.set(entity.id, snap);
       }

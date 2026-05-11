@@ -2,10 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup } from "@solidjs/testing-library";
 import { Router, Route } from "@solidjs/router";
 import { App } from "../App";
-import { MissionSelector } from "../pages/mission-selector";
+import { RecordingSelector } from "../pages/recording-selector";
 
 // Mock LeafletRenderer to avoid Leaflet in jsdom
-vi.mock("../renderers/leaflet/leaflet-renderer", () => ({
+vi.mock("../renderers/leaflet/leafletRenderer", () => ({
   LeafletRenderer: vi.fn().mockImplementation(() => ({
     init: vi.fn(),
     dispose: vi.fn(),
@@ -39,18 +39,18 @@ describe("App", () => {
   it("renders without crashing", () => {
     const { container } = render(() => (
       <Router root={App}>
-        <Route path="/" component={MissionSelector} />
+        <Route path="/" component={RecordingSelector} />
       </Router>
     ));
     expect(container).toBeDefined();
   });
 
-  it("renders the mission selector on /", () => {
+  it("renders the recording selector on /", () => {
     const { getByTestId } = render(() => (
       <Router root={App}>
-        <Route path="/" component={MissionSelector} />
+        <Route path="/" component={RecordingSelector} />
       </Router>
     ));
-    expect(getByTestId("mission-selector")).toBeDefined();
+    expect(getByTestId("recording-selector")).toBeDefined();
   });
 });

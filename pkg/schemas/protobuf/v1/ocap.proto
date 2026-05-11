@@ -8,7 +8,7 @@ message Manifest {
   uint32 version = 1;
   string world_name = 2;
   string mission_name = 3;
-  uint32 frame_count = 4;
+  uint32 end_frame = 4;
   uint32 chunk_size = 5;
   uint32 capture_delay_ms = 6;
   uint32 chunk_count = 7;
@@ -92,6 +92,7 @@ message EntityState {
   float pos_z = 11;
   string group_name = 12;
   string side = 13;
+  uint32 frame_num = 14;  // Used in temp files during streaming conversion; zero in final chunks
 }
 
 message Event {
@@ -102,6 +103,11 @@ message Event {
   string message = 5;
   float distance = 6;
   string weapon = 7;
+  float pos_x = 8;
+  float pos_y = 9;
+  string object_type = 10;
+  string unit_name = 11;
+  string side = 12;
 }
 
 message MarkerDef {
@@ -126,4 +132,10 @@ message MarkerPosition {
   float direction = 5;
   float alpha = 6;
   repeated float line_coords = 7;  // For POLYLINE: [x1, y1, x2, y2, ...] pairs
+  // Style overrides — present when a marker changes appearance mid-recording
+  string text = 8;
+  string color = 9;
+  repeated float size = 10;
+  string type = 11;
+  string brush = 12;
 }

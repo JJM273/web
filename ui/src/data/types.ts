@@ -123,9 +123,11 @@ export interface GeneralEventDef {
 }
 
 export interface CapturedEventDef {
-  type: "captured" | "capturedFlag";
+  type: "captured" | "capturedFlag" | "contested";
   unitName: string;
   objectType: string;
+  side?: string;
+  position?: [number, number];
 }
 
 export interface TerminalHackEventDef {
@@ -144,6 +146,9 @@ export type EventDef = { frameNum: number } & (
 );
 
 // --------------- Markers ---------------
+
+/** Sentinel: marker persists until mission end. Decoders must normalize to this value. */
+export const FRAME_FOREVER = -1;
 
 export interface MarkerDef {
   shape: "ICON" | "ELLIPSE" | "RECTANGLE" | "POLYLINE";
@@ -167,7 +172,7 @@ export interface Manifest {
   worldName: string;
   missionName: string;
   missionAuthor?: string;
-  frameCount: number;
+  endFrame: number;
   chunkSize: number;
   captureDelayMs: number;
   chunkCount: number;
@@ -224,8 +229,8 @@ export interface ChunkData {
   entities: Map<number, EntityState[]>;
 }
 
-/** Summary row returned by the operations list API. */
-export interface Operation {
+/** Summary row returned by the recordings list API. */
+export interface Recording {
   id: string;
   worldName: string;
   missionName: string;
@@ -241,6 +246,8 @@ export interface Operation {
   killCount?: number;
   playerKillCount?: number;
   sideComposition?: Record<string, { players: number; units: number; dead: number; kills: number }>;
+  focusStart?: number;
+  focusEnd?: number;
 }
 
 /** Per-world map configuration (from map.json). */
@@ -262,4 +269,10 @@ export interface WorldConfig {
   hasTopoRelief?: boolean;
   hasColorRelief?: boolean;
   attribution?: string;
+}
+
+/** Installed map world with display name resolved from meta.json / map.json. */
+export interface WorldInfo {
+  name: string;
+  displayName: string;
 }

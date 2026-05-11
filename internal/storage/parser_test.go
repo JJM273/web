@@ -104,7 +104,7 @@ func TestParserV1_Parse_MinimalData(t *testing.T) {
 
 	assert.Equal(t, "Altis", result.WorldName)
 	assert.Equal(t, "Test Mission", result.MissionName)
-	assert.Equal(t, uint32(100), result.FrameCount)
+	assert.Equal(t, uint32(100), result.EndFrame)
 	assert.Equal(t, uint32(50), result.ChunkSize)
 	assert.Equal(t, uint32(1500), result.CaptureDelayMs)
 }
@@ -383,6 +383,7 @@ func TestParserV1_Parse_Markers_OldExtensionFormat(t *testing.T) {
 	assert.Equal(t, "o_inf", m.Type)
 	assert.Equal(t, "EAST", m.Side, "sideIndex 0 = EAST")
 	assert.Equal(t, "0000FF", m.Color)
+	assert.Equal(t, uint32(0), m.EndFrame, "-1 in v1 JSON should convert to 0 (FrameForever)")
 
 	require.Len(t, m.Positions, 2)
 
@@ -792,7 +793,8 @@ func TestParserV1_parseEvent_EdgeCases(t *testing.T) {
 		require.NotNil(t, evt)
 		assert.Equal(t, uint32(376), evt.FrameNum)
 		assert.Equal(t, "endMission", evt.Type)
-		assert.Equal(t, "WEST,Mission complete", evt.Message)
+		assert.Equal(t, "WEST", evt.Side)
+		assert.Equal(t, "Mission complete", evt.Message)
 	})
 
 	t.Run("endMission with empty string", func(t *testing.T) {
@@ -800,6 +802,14 @@ func TestParserV1_parseEvent_EdgeCases(t *testing.T) {
 		require.NotNil(t, evt)
 		assert.Equal(t, "endMission", evt.Type)
 		assert.Empty(t, evt.Message)
+	})
+
+	t.Run("endMission with single-element array", func(t *testing.T) {
+		evt := p.parseEvent([]interface{}{376.0, "endMission", []interface{}{"Mission complete"}})
+		require.NotNil(t, evt)
+		assert.Equal(t, "endMission", evt.Type)
+		assert.Equal(t, "Mission complete", evt.Message)
+		assert.Empty(t, evt.Side)
 	})
 
 	t.Run("endMission without data", func(t *testing.T) {
@@ -812,18 +822,42 @@ func TestParserV1_parseEvent_EdgeCases(t *testing.T) {
 	// ── captured / capturedFlag ──
 
 	t.Run("captured with data array", func(t *testing.T) {
-		evt := p.parseEvent([]interface{}{200.0, "captured", []interface{}{"Player1", "blue", "flag_carrier"}})
+		evt := p.parseEvent([]interface{}{200.0, "captured", []interface{}{"sector", "Sector Alpha", "WEST"}})
 		require.NotNil(t, evt)
 		assert.Equal(t, uint32(200), evt.FrameNum)
 		assert.Equal(t, "captured", evt.Type)
-		assert.Equal(t, "Player1,blue,flag_carrier", evt.Message)
+		assert.Equal(t, "sector", evt.ObjectType)
+		assert.Equal(t, "Sector Alpha", evt.UnitName)
+		assert.Equal(t, "WEST", evt.Side)
+	})
+
+	t.Run("captured with position", func(t *testing.T) {
+		evt := p.parseEvent([]interface{}{200.0, "captured", []interface{}{
+			"sector", "Sector Alpha", "WEST", []interface{}{5000.0, 6000.0, 0.0},
+		}})
+		require.NotNil(t, evt)
+		assert.Equal(t, "captured", evt.Type)
+		assert.Equal(t, "sector", evt.ObjectType)
+		assert.Equal(t, "Sector Alpha", evt.UnitName)
+		assert.Equal(t, "WEST", evt.Side)
+		assert.Equal(t, float32(5000.0), evt.PosX)
+		assert.Equal(t, float32(6000.0), evt.PosY)
 	})
 
 	t.Run("capturedFlag with data array", func(t *testing.T) {
-		evt := p.parseEvent([]interface{}{210.0, "capturedFlag", []interface{}{"Player1", "blue"}})
+		evt := p.parseEvent([]interface{}{210.0, "capturedFlag", []interface{}{"Player1", "WEST", "EAST"}})
 		require.NotNil(t, evt)
 		assert.Equal(t, "capturedFlag", evt.Type)
-		assert.Equal(t, "Player1,blue", evt.Message)
+		assert.Equal(t, "flag", evt.ObjectType)
+		assert.Equal(t, "Player1", evt.UnitName)
+	})
+
+	t.Run("capturedFlag without data", func(t *testing.T) {
+		evt := p.parseEvent([]interface{}{210.0, "capturedFlag"})
+		require.NotNil(t, evt)
+		assert.Equal(t, "capturedFlag", evt.Type)
+		assert.Equal(t, "flag", evt.ObjectType)
+		assert.Empty(t, evt.UnitName)
 	})
 
 	// ── terminalHack ──
@@ -962,6 +996,47 @@ func TestParserV1_parseMarkerPosition_Formats(t *testing.T) {
 		assert.Equal(t, float32(0.0), pos.Direction)
 		assert.Equal(t, float32(1.0), pos.Alpha)
 	})
+
+	t.Run("extended JSON format with style overrides", func(t *testing.T) {
+		pos := p.parseMarkerPosition([]interface{}{
+			20.0,
+			[]interface{}{14831.0, 16599.9, 17.843},
+			0.0,
+			1.0,
+			"",                          // text
+			"004C99",                    // color
+			[]interface{}{1.5, 1.5},     // size
+			"b_installation",            // type
+			"Solid",                     // brush
+			"ICON",                      // shape (not stored in position)
+		})
+		require.NotNil(t, pos)
+		assert.Equal(t, uint32(20), pos.FrameNum)
+		assert.InDelta(t, 14831.0, pos.PosX, 0.1)
+		assert.InDelta(t, 16599.9, pos.PosY, 0.1)
+		assert.Equal(t, "", pos.Text)
+		assert.Equal(t, "004C99", pos.Color)
+		assert.Equal(t, []float32{1.5, 1.5}, pos.Size)
+		assert.Equal(t, "b_installation", pos.Type)
+		assert.Equal(t, "Solid", pos.Brush)
+	})
+
+	t.Run("extended JSON format with empty style fields", func(t *testing.T) {
+		pos := p.parseMarkerPosition([]interface{}{
+			20.0,
+			[]interface{}{100.0, 200.0},
+			0.0,
+			1.0,
+			"", "", nil, "", "",
+		})
+		require.NotNil(t, pos)
+		assert.Equal(t, uint32(20), pos.FrameNum)
+		assert.Equal(t, "", pos.Text)
+		assert.Equal(t, "", pos.Color)
+		assert.Nil(t, pos.Size)
+		assert.Equal(t, "", pos.Type)
+		assert.Equal(t, "", pos.Brush)
+	})
 }
 
 func TestParserV1_calculateEndFrame(t *testing.T) {
@@ -1096,7 +1171,7 @@ func TestParserV1_Parse_VehicleSparsePositions_ChunkBuild(t *testing.T) {
 	data := map[string]interface{}{
 		"worldName":    "Altis",
 		"missionName":  "Test",
-		"endFrame":     10.0,
+		"endFrame":     9.0,
 		"captureDelay": 1.0,
 		"entities": []interface{}{
 			map[string]interface{}{
@@ -1112,7 +1187,7 @@ func TestParserV1_Parse_VehicleSparsePositions_ChunkBuild(t *testing.T) {
 						180.0,
 						1.0,
 						[]interface{}{},
-						[]interface{}{0.0, 9.0}, // Covers all 10 frames
+						[]interface{}{0.0, 9.0}, // Covers all 10 frames (0-9)
 					},
 				},
 			},

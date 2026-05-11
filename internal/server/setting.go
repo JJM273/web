@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -24,6 +27,9 @@ type Setting struct {
 	Customize  Customize  `json:"customize" yaml:"customize"`
 	Conversion Conversion `json:"conversion" yaml:"conversion"`
 	Streaming  Streaming  `json:"streaming" yaml:"streaming"`
+	Auth       Auth       `json:"auth" yaml:"auth"`
+	HttpServer HttpServer `json:"httpServer" yaml:"httpServer"`
+	CORS       CORSConfig `json:"cors" yaml:"cors"`
 }
 
 type Conversion struct {
@@ -35,19 +41,39 @@ type Conversion struct {
 }
 
 type Customize struct {
-	Enabled          bool   `json:"enabled" yaml:"enabled"`
-	WebsiteURL       string `json:"websiteURL" yaml:"websiteURL"`
-	WebsiteLogo      string `json:"websiteLogo" yaml:"websiteLogo"`
-	WebsiteLogoSize  string `json:"websiteLogoSize" yaml:"websiteLogoSize"`
-	DisableKillCount bool   `json:"disableKillCount" yaml:"disableKillCount"`
-	HeaderTitle      string `json:"headerTitle" yaml:"headerTitle"`
-	HeaderSubtitle   string `json:"headerSubtitle" yaml:"headerSubtitle"`
+	Enabled          bool              `json:"enabled" yaml:"enabled"`
+	WebsiteURL       string            `json:"websiteURL" yaml:"websiteURL"`
+	WebsiteLogo      string            `json:"websiteLogo" yaml:"websiteLogo"`
+	WebsiteLogoSize  string            `json:"websiteLogoSize" yaml:"websiteLogoSize"`
+	DisableKillCount bool              `json:"disableKillCount" yaml:"disableKillCount"`
+	HeaderTitle      string            `json:"headerTitle" yaml:"headerTitle"`
+	HeaderSubtitle   string            `json:"headerSubtitle" yaml:"headerSubtitle"`
+	CSSOverrides     map[string]string `json:"cssOverrides,omitempty" yaml:"cssOverrides"`
+}
+
+type Auth struct {
+	Mode          string        `json:"mode" yaml:"mode"`
+	SessionTTL    time.Duration `json:"sessionTTL" yaml:"sessionTTL"`
+	AdminSteamIDs []string      `json:"adminSteamIds" yaml:"adminSteamIds"`
+	SteamAPIKey   string        `json:"steamApiKey" yaml:"steamApiKey"`
+	Password      string        `json:"password" yaml:"password"`
 }
 
 type Streaming struct {
 	Enabled      bool          `json:"enabled" yaml:"enabled"`
 	PingInterval time.Duration `json:"pingInterval" yaml:"pingInterval"`
 	PingTimeout  time.Duration `json:"pingTimeout" yaml:"pingTimeout"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `json:"allowedOrigins" yaml:"allowedOrigins"`
+}
+
+type HttpServer struct {
+	ReadTimeout       time.Duration `json:"readTimeout" yaml:"readTimeout"`
+	ReadHeaderTimeout time.Duration `json:"readHeaderTimeout" yaml:"readHeaderTimeout"`
+	WriteTimeout      time.Duration `json:"writeTimeout" yaml:"writeTimeout"`
+	IdleTimeout       time.Duration `json:"idleTimeout" yaml:"idleTimeout"`
 }
 
 func NewSetting() (setting Setting, err error) {
@@ -66,6 +92,7 @@ func NewSetting() (setting Setting, err error) {
 
 	viper.SetDefault("listen", "127.0.0.1:5000")
 	viper.SetDefault("prefixURL", "")
+	viper.SetDefault("secret", "")
 	viper.SetDefault("db", "data.db")
 	viper.SetDefault("markers", "assets/markers")
 	viper.SetDefault("ammo", "assets/ammo")
@@ -75,7 +102,12 @@ func NewSetting() (setting Setting, err error) {
 	viper.SetDefault("static", "")
 	viper.SetDefault("logger", false)
 	viper.SetDefault("customize.enabled", false)
+	viper.SetDefault("customize.websiteURL", "")
+	viper.SetDefault("customize.websiteLogo", "")
 	viper.SetDefault("customize.websiteLogoSize", "32px")
+	viper.SetDefault("customize.disableKillCount", false)
+	viper.SetDefault("customize.headerTitle", "")
+	viper.SetDefault("customize.headerSubtitle", "")
 	viper.SetDefault("conversion.enabled", false)
 	viper.SetDefault("conversion.interval", "5m")
 	viper.SetDefault("conversion.batchSize", 1)
@@ -85,26 +117,52 @@ func NewSetting() (setting Setting, err error) {
 	viper.SetDefault("streaming.enabled", false)
 	viper.SetDefault("streaming.pingInterval", "30s")
 	viper.SetDefault("streaming.pingTimeout", "10s")
+	viper.SetDefault("auth.sessionTTL", "24h")
+	viper.SetDefault("auth.adminSteamIds", []string{})
+	viper.SetDefault("auth.steamApiKey", "")
+	viper.SetDefault("auth.mode", "public")
+	viper.SetDefault("auth.password", "")
 
-	// workaround for https://github.com/spf13/viper/issues/761
-	envKeys := []string{"listen", "prefixURL", "secret", "db", "markers", "ammo", "fonts", "maps", "data", "static", "customize.enabled", "customize.websiteurl", "customize.websitelogo", "customize.websitelogosize", "customize.disableKillCount", "customize.headertitle", "customize.headersubtitle", "conversion.enabled", "conversion.interval", "conversion.batchSize", "conversion.chunkSize", "conversion.retryFailed", "streaming.enabled", "streaming.pingInterval", "streaming.pingTimeout"}
-	for _, key := range envKeys {
-		env := strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
-		if err = viper.BindEnv(key, env); err != nil {
-			return
-		}
-	}
+	viper.SetDefault("cors.allowedOrigins", []string{})
+	viper.SetDefault("httpServer.readTimeout", "120s")
+	viper.SetDefault("httpServer.readHeaderTimeout", "30s")
+	viper.SetDefault("httpServer.writeTimeout", "120s")
+	viper.SetDefault("httpServer.idleTimeout", "120s")
 
 	if err = viper.ReadInConfig(); err != nil {
-		return
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			return
+		}
+		err = nil
 	}
 
 	if err = viper.Unmarshal(&setting); err != nil {
 		return
 	}
 
+	if err = validateAuthConfig(setting.Auth); err != nil {
+		return
+	}
+
+	// Viper can't unmarshal a JSON string env var into map[string]string,
+	// so parse OCAP_CUSTOMIZE_CSSOVERRIDES manually if set. Env var takes
+	// precedence over config file.
+	if raw := os.Getenv("OCAP_CUSTOMIZE_CSSOVERRIDES"); raw != "" {
+		var m map[string]string
+		if err = json.Unmarshal([]byte(raw), &m); err != nil {
+			return setting, fmt.Errorf("parse OCAP_CUSTOMIZE_CSSOVERRIDES: %w", err)
+		}
+		setting.Customize.CSSOverrides = m
+	}
+
 	if err = os.MkdirAll(setting.Data, 0755); err != nil {
 		return setting, fmt.Errorf("create data directory: %w", err)
+	}
+	if err = os.MkdirAll(filepath.Dir(setting.DB), 0755); err != nil {
+		return setting, fmt.Errorf("create database directory: %w", err)
+	}
+	if err = os.MkdirAll(setting.Maps, 0755); err != nil {
+		return setting, fmt.Errorf("create maps directory: %w", err)
 	}
 
 	if setting.Secret == "" || setting.Secret == "same-secret" {
@@ -112,4 +170,18 @@ func NewSetting() (setting Setting, err error) {
 	}
 
 	return
+}
+
+func validateAuthConfig(auth Auth) error {
+	validModes := []string{"public", "password", "steam", "steamAllowlist"}
+	if !slices.Contains(validModes, auth.Mode) {
+		return fmt.Errorf("auth.mode %q is not valid, must be one of: %s", auth.Mode, strings.Join(validModes, ", "))
+	}
+	switch auth.Mode {
+	case "password":
+		if auth.Password == "" {
+			return fmt.Errorf("auth.mode %q requires auth.password to be set", auth.Mode)
+		}
+	}
+	return nil
 }

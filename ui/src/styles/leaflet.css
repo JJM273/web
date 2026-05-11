@@ -13,6 +13,7 @@
 
 .leaflet-bottom {
   bottom: calc(var(--pb-bottom-height, 90px) + 8px);
+  transition: bottom 0.15s ease;
 }
 
 
@@ -44,6 +45,17 @@
 .leaflet-div-icon {
   background: none;
   border: none;
+}
+
+.marker-text-label span {
+  color: white;
+  text-shadow: -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000,
+    1px 1px 0 #000;
+  font-weight: bold;
+  font-size: 24px;
+  white-space: nowrap;
+  display: block;
+  transform: translateY(-50%);
 }
 
 .leaflet-popup-vehicle .leaflet-popup-content-wrapper {

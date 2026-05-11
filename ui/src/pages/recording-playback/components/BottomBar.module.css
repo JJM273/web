@@ -1,8 +1,3 @@
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
 /* ─── BottomBar ─── */
 
 .bottomBar {
@@ -11,12 +6,14 @@
   left: 0;
   right: 0;
   height: var(--pb-bottom-height);
-  background: linear-gradient(0deg, rgba(10, 15, 20, 0.97) 0%, rgba(10, 15, 20, 0.85) 100%);
+  transition: height 0.15s ease;
+  background: linear-gradient(0deg, color-mix(in srgb, var(--bg-dark) 97%, transparent) 0%, color-mix(in srgb, var(--bg-dark) 85%, transparent) 100%);
   backdrop-filter: blur(16px);
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: var(--border-subtle);
   z-index: 20;
   display: flex;
   flex-direction: column;
+  gap: 4px;
   padding: 0 20px;
   animation: fadeIn 0.4s ease-out 0.1s both;
 }
@@ -36,20 +33,22 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  min-width: 200px;
+  flex: 1;
+  min-width: 0;
 }
 
 .controlsCenter {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 2px;
 }
 
 .controlsRight {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-width: 200px;
+  flex: 1;
+  min-width: 0;
   justify-content: flex-end;
 }
 
@@ -58,16 +57,12 @@
 .scrubberWrap {
   position: relative;
   width: 100%;
-  height: 32px;
-  display: flex;
-  align-items: center;
+  height: 36px;
 }
 
 .scrubberTrack {
   width: 100%;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 3px;
+  height: 100%;
   cursor: pointer;
   position: relative;
 }
@@ -77,8 +72,8 @@
   top: 0;
   left: 0;
   height: 100%;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #4A9EFF, #60b4ff);
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 80%, white));
   pointer-events: none;
 }
 
@@ -88,58 +83,163 @@
 
 .eventMarker {
   position: absolute;
-  top: -3px;
-  width: 4px;
-  height: 12px;
+  bottom: 0;
+  width: 2px;
+  height: 7px;
   border-radius: 1px;
-  background: var(--accent-red);
-  opacity: 0.7;
+  background: var(--accent-danger);
+  opacity: 0.6;
   transform: translateX(-50%);
   pointer-events: none;
 }
 
-.playhead {
+.playheadLine {
   position: absolute;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--accent-blue);
-  border: 2px solid #0d1520;
-  box-shadow: 0 0 8px rgba(74, 158, 255, 0.5);
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-primary) 40%, transparent);
+  border-radius: 1px;
   pointer-events: none;
 }
 
+.playheadKnob {
+  position: absolute;
+  bottom: -2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: 2px solid var(--bg-dark);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent-primary) 50%, transparent);
+}
+
 .playheadSmooth {
-  transition: left 0.1s linear;
+  transition: left 80ms linear;
 }
 
 .hoverTooltip {
   position: absolute;
-  bottom: 16px;
+  bottom: 44px;
   transform: translateX(-50%);
-  background: var(--bg-surface-hover);
+  background: color-mix(in srgb, var(--bg-dark) 95%, transparent);
+  backdrop-filter: blur(8px);
   color: var(--text-secondary);
-  padding: 3px 8px;
-  border-radius: 4px;
-  font-size: 10px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   pointer-events: none;
   white-space: nowrap;
   border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  z-index: 30;
+}
+
+.hoverTooltipTime {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hoverTooltipEvents {
+  margin-top: 3px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.hoverTooltipEvent {
+  font-size: var(--font-size-xs, 10px);
+  color: var(--text-secondary);
+}
+
+.hoverEventKill {
+  color: var(--accent-danger);
+}
+
+.hoverEventHit {
+  color: var(--accent-warning);
+}
+
+.heatmapContainer {
+  position: absolute;
+  bottom: 6px;
+  left: 0;
+  right: 0;
+  height: 28px;
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  pointer-events: none;
+}
+
+.heatmapBucketEmpty {
+  flex: 1;
+  min-width: 0;
+}
+
+.heatmapBucket {
+  flex: 1;
+  min-width: 0;
+  border-radius: 1px 1px 0 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+}
+
+.heatmapBucketPast {
+  opacity: 0.8;
+}
+
+.heatmapKill {
+  background: var(--accent-danger);
+}
+
+.heatmapHit {
+  background: var(--accent-warning);
+}
+
+.heatmapOther {
+  background: #445566;
+}
+
+.trackBar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.hoverLine {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(255, 255, 255, 0.15);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 /* ─── Playback Controls ─── */
 
 .panelToggle {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-interactive);
+  border: var(--border-subtle);
   border-radius: 6px;
   padding: 4px 10px;
   cursor: pointer;
   color: var(--text-dimmer);
-  font-size: 10px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   font-weight: 600;
   display: flex;
@@ -148,13 +248,13 @@
 }
 
 .panelToggleActive {
-  background: rgba(74, 158, 255, 0.12);
-  border-color: rgba(74, 158, 255, 0.2);
-  color: var(--accent-blue);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary);
 }
 
 .timeDisplay {
-  font-size: 13px;
+  font-size: var(--font-size-lg);
   font-family: var(--font-mono);
   color: var(--text-primary);
   font-weight: 500;
@@ -188,7 +288,7 @@
   height: 40px;
   border-radius: 10px;
   border: none;
-  color: #fff;
+  color: var(--text-on-accent);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -197,79 +297,282 @@
 }
 
 .playBtnPlay {
-  background: linear-gradient(135deg, #4A9EFF, #3585dd);
-  box-shadow: 0 2px 12px rgba(74, 158, 255, 0.3);
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-primary-dark));
+  box-shadow: var(--shadow-accent);
 }
 
 .playBtnPause {
-  background: rgba(74, 158, 255, 0.15);
-  border: 1px solid rgba(74, 158, 255, 0.3);
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 30%, transparent);
   box-shadow: none;
 }
 
-/* ─── Speed Selector ─── */
+/* ─── Speed Strip ─── */
+
+.speedStrip {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  background: var(--bg-interactive);
+  border-radius: 5px;
+  padding: 2px;
+  border: var(--border-subtle);
+}
 
 .speedBtn {
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
-  padding: 4px 10px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: none;
   cursor: pointer;
-  color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
-  font-weight: 600;
+  font-weight: 500;
+  min-width: 28px;
+  text-align: center;
+  transition: all 0.12s;
+  background: transparent;
+  color: var(--text-dimmer);
+}
+
+.speedBtnActive {
+  background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  color: var(--accent-primary);
+  font-weight: 700;
+}
+
+/* ─── Focus Range ─── */
+
+.focusDimOverlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 3px,
+    rgba(255, 255, 255, 0.04) 3px,
+    rgba(255, 255, 255, 0.04) 6px
+  );
+  pointer-events: none;
+  z-index: 2;
+}
+
+.focusBorderEditing {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border: 1px dashed color-mix(in srgb, var(--accent-focus) 40%, transparent);
+  border-left: none;
+  border-right: none;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.focusAccentLine {
+  position: absolute;
+  top: 0;
+  height: 2px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent-focus) 30%, transparent), color-mix(in srgb, var(--accent-focus) 50%, transparent), color-mix(in srgb, var(--accent-focus) 30%, transparent));
+  pointer-events: none;
+  z-index: 2;
+}
+
+.focusTick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--accent-focus) 40%, transparent);
+  transform: translateX(-50%);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.focusHandle {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 8px;
+  background: var(--accent-focus);
+  cursor: ew-resize;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--accent-focus) 40%, transparent);
+}
+
+.focusHandleIn {
+  transform: translateX(-100%);
+  border-radius: 3px 0 0 3px;
+}
+
+.focusHandleOut {
+  border-radius: 0 3px 3px 0;
+}
+
+.focusHandleGrip {
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.focusHandle:hover {
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent-focus) 60%, transparent);
+}
+
+.focusHandleLabel {
+  position: absolute;
+  top: -22px;
+  transform: translateX(-50%);
+  font-size: var(--font-size-xs, 10px);
+  font-family: var(--font-mono);
+  color: var(--accent-focus);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.heatmapBucketDimmed {
+  opacity: 0.1 !important;
+}
+
+/* ─── Focus Toolbar ─── */
+
+.focusToolbarRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 4px 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent-focus) 10%, transparent);
+}
+
+.focusToolbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.focusToolbarRight {
   display: flex;
   align-items: center;
   gap: 4px;
 }
 
-.speedPopup {
-  position: absolute;
-  bottom: 100%;
-  left: 50%;
-  transform: translateX(-50%);
-  margin-bottom: 6px;
-  background: var(--bg-surface);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  padding: 4px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
-  z-index: 100;
-}
-
-.speedOption {
-  background: transparent;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 16px;
-  color: var(--text-muted);
-  font-size: 11px;
+.focusToolbarLabel {
+  font-size: var(--font-size-sm);
   font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent-focus);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.focusToolbarRange {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: color-mix(in srgb, var(--accent-focus) 60%, var(--text-dimmest));
+}
+
+.focusToolbarBtn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-interactive);
+  color: var(--text-dimmer);
+  transition: all 0.12s;
 }
 
-.speedOptionActive {
-  background: rgba(74, 158, 255, 0.15);
-  color: var(--accent-blue);
+.focusToolbarBtn kbd {
+  font-size: 9px;
+  min-width: auto;
+  padding: 0 3px;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.focusToolbarBtn:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
+}
+
+.focusToolbarSep {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 0 2px;
+}
+
+.focusToolbarSave {
+  background: color-mix(in srgb, var(--accent-focus) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent-focus) 20%, transparent);
+  color: var(--accent-focus);
+}
+
+.focusToolbarSave:hover {
+  background: color-mix(in srgb, var(--accent-focus) 20%, transparent);
+}
+
+.focusToolbarGold {
+  background: color-mix(in srgb, var(--accent-focus) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-focus) 20%, transparent);
+  color: var(--accent-focus);
+  font-weight: 600;
+}
+
+.focusToolbarGold:hover {
+  background: color-mix(in srgb, var(--accent-focus) 15%, transparent);
+}
+
+/* ─── Focus Toggle + Focus Button ─── */
+
+.focusToggle {
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--accent-focus) 15%, transparent);
+  background: color-mix(in srgb, var(--accent-focus) 8%, transparent);
+  color: var(--accent-focus);
+  cursor: pointer;
+  font-size: var(--font-size-xs, 10px);
+  font-family: var(--font-mono);
   font-weight: 700;
+  letter-spacing: 0.05em;
+  transition: all 0.12s;
 }
 
-.speedOptionDisabled {
-  opacity: 0.35;
-  cursor: not-allowed;
+.focusToggle:hover {
+  background: color-mix(in srgb, var(--accent-focus) 15%, transparent);
 }
 
-/* Wider variant for text-heavy dropdowns (names, time mode) */
-.dropdownWide {
-  min-width: 100px;
-  justify-content: space-between;
+.focusBtn {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-dimmest);
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.12s;
 }
 
-.dropdownPopupWide {
-  min-width: 140px;
+.focusBtnActive {
+  background: color-mix(in srgb, var(--accent-focus) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent-focus) 15%, transparent);
+  color: var(--accent-focus);
 }
-

@@ -2,13 +2,11 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"log/slog"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,9 +14,10 @@ import (
 
 	"github.com/OCAP2/web/internal/conversion"
 	"github.com/OCAP2/web/internal/frontend"
+	"github.com/OCAP2/web/internal/maptool"
 	"github.com/OCAP2/web/internal/server"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-fuego/fuego"
 )
 
 func main() {
@@ -53,9 +52,10 @@ func app() error {
 	}
 
 	// Set up slog with JSON handler for consistent logging
-	slog.SetDefault(slog.New(slog.NewJSONHandler(logOutput, nil)))
+	logHandler := slog.NewJSONHandler(logOutput, nil)
+	slog.SetDefault(slog.New(logHandler))
 
-	operation, err := server.NewRepoOperation(setting.DB)
+	operation, err := server.NewRepoOperationWithDataDir(setting.DB, setting.Data)
 	if err != nil {
 		return fmt.Errorf("operation: %w", err)
 	}
@@ -70,14 +70,32 @@ func app() error {
 		return fmt.Errorf("ammo: %w", err)
 	}
 
-	e := echo.New()
-
-	loggerConfig := middleware.DefaultLoggerConfig
-	loggerConfig.Output = logOutput
-
-	e.Use(
-		middleware.LoggerWithConfig(loggerConfig),
+	s := fuego.NewServer(
+		fuego.WithAddr(setting.Listen),
+		fuego.WithLogHandler(logHandler),
+		fuego.WithoutAutoGroupTags(),
+		fuego.WithSecurity(server.OpenAPISecuritySchemes),
+		fuego.WithEngineOptions(
+			fuego.WithOpenAPIConfig(fuego.OpenAPIConfig{
+				SwaggerURL:       "/swagger",
+				SpecURL:          "/swagger/openapi.json",
+				PrettyFormatJSON: true,
+				DisableLocalSave: true,
+				UIHandler:        server.OpenAPIUIHandler,
+				Info: &openapi3.Info{
+					Title:       "OCAP2 Web API",
+					Description: "Operation Capture And Playback — mission recording and replay API",
+					Version:     server.BuildVersion,
+				},
+			}),
+		),
 	)
+
+	// Apply HTTP server settings
+	s.Server.ReadTimeout = setting.HttpServer.ReadTimeout
+	s.Server.ReadHeaderTimeout = setting.HttpServer.ReadHeaderTimeout
+	s.Server.WriteTimeout = setting.HttpServer.WriteTimeout
+	s.Server.IdleTimeout = setting.HttpServer.IdleTimeout
 
 	// Create conversion worker if enabled (before handler so we can pass it)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -121,7 +139,29 @@ func app() error {
 		go worker.Start(ctx)
 	}
 
-	server.NewHandler(e, operation, marker, ammo, setting, handlerOpts...)
+	// Auto-detect maptool: enable if all required tools are available.
+	tools := maptool.DetectTools()
+	if missing := tools.MissingRequired(); len(missing) > 0 {
+		names := make([]string, len(missing))
+		for i, t := range missing {
+			names[i] = t.Name
+		}
+		slog.Warn("maptool: disabled (missing required tools)", "missing", names)
+	} else {
+		for _, t := range tools {
+			found := "not found"
+			if t.Found {
+				found = t.Path
+			}
+			slog.Info("maptool", "tool", t.Name, "status", found, "required", t.Required)
+		}
+		newPipeline := func() *maptool.Pipeline { return maptool.BuildGradMehPipeline(tools) }
+		jm := maptool.NewJobManager(setting.Maps, newPipeline)
+		go jm.Start(ctx)
+		handlerOpts = append(handlerOpts, server.WithMapTool(jm, tools, setting.Maps))
+	}
+
+	server.NewHandler(s, operation, marker, ammo, setting, handlerOpts...)
 
 	// Handle graceful shutdown
 	go func() {
@@ -129,12 +169,8 @@ func app() error {
 		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 		<-quit
 		cancel()
-		e.Shutdown(context.Background())
+		s.Shutdown(context.Background())
 	}()
 
-	if err = e.Start(setting.Listen); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("start server: %w", err)
-	}
-
-	return nil
+	return s.Run()
 }

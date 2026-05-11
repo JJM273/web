@@ -20,7 +20,7 @@ func (p *ParserV1) Parse(data map[string]interface{}, chunkSize uint32) (*ParseR
 	result := &ParseResult{
 		WorldName:        getString(data, "worldName"),
 		MissionName:      getString(data, "missionName"),
-		FrameCount:       getUint32(data, "endFrame"),
+		EndFrame:         getUint32(data, "endFrame"),
 		ChunkSize:        chunkSize,
 		CaptureDelayMs:   uint32(getFloat64(data, "captureDelay") * 1000),
 		ExtensionVersion: getString(data, "extensionVersion"),
@@ -167,12 +167,11 @@ func parseEventArray(evtArr []interface{}) *Event {
 	// End mission: [frameNum, "endMission", [side, message]] or [frameNum, "endMission", "message"]
 	if event.Type == "endMission" {
 		if len(evtArr) > 2 {
-			if arr, ok := evtArr[2].([]interface{}); ok {
-				parts := make([]string, len(arr))
-				for i, v := range arr {
-					parts[i] = toString(v)
-				}
-				event.Message = strings.Join(parts, ",")
+			if arr, ok := evtArr[2].([]interface{}); ok && len(arr) >= 2 {
+				event.Side = toString(arr[0])
+				event.Message = toString(arr[1])
+			} else if arr, ok := evtArr[2].([]interface{}); ok && len(arr) == 1 {
+				event.Message = toString(arr[0])
 			} else {
 				event.Message = toString(evtArr[2])
 			}
@@ -180,13 +179,50 @@ func parseEventArray(evtArr []interface{}) *Event {
 		return event
 	}
 
-	// Captured and terminal hack events: [frameNum, "type", [data, ...]]
-	if event.Type == "captured" || event.Type == "capturedFlag" || event.Type == "terminalHackStarted" || event.Type == "terminalHackCanceled" {
+	// Captured/contested sector events: [frameNum, "type", [objectType, unitName, side?, [posX, posY, posZ]?]]
+	if event.Type == "captured" || event.Type == "contested" {
 		if len(evtArr) > 2 {
 			if arr, ok := evtArr[2].([]interface{}); ok {
-				parts := make([]string, len(arr))
-				for i, v := range arr {
-					parts[i] = toString(v)
+				var strIdx int
+				for _, v := range arr {
+					if posArr, ok := v.([]interface{}); ok && len(posArr) >= 2 {
+						event.PosX = float32(toFloat64(posArr[0]))
+						event.PosY = float32(toFloat64(posArr[1]))
+					} else {
+						switch strIdx {
+						case 0:
+							event.ObjectType = toString(v)
+						case 1:
+							event.UnitName = toString(v)
+						case 2:
+							event.Side = toString(v)
+						}
+						strIdx++
+					}
+				}
+			}
+		}
+		return event
+	}
+
+	// Legacy capturedFlag: [frameNum, "capturedFlag", [unitName, unitSide, flagSide]]
+	if event.Type == "capturedFlag" {
+		event.ObjectType = "flag"
+		if len(evtArr) > 2 {
+			if arr, ok := evtArr[2].([]interface{}); ok && len(arr) > 0 {
+				event.UnitName = toString(arr[0])
+			}
+		}
+		return event
+	}
+
+	// Terminal hack events: [frameNum, "type", [data, ...]]
+	if event.Type == "terminalHackStarted" || event.Type == "terminalHackCanceled" {
+		if len(evtArr) > 2 {
+			if arr, ok := evtArr[2].([]interface{}); ok {
+				var parts []string
+				for _, v := range arr {
+					parts = append(parts, toString(v))
 				}
 				event.Message = strings.Join(parts, ",")
 			}
@@ -262,11 +298,20 @@ func (p *ParserV1) parseMarker(markerArr []interface{}) *MarkerDef {
 		return nil
 	}
 
+	// v1 JSON uses -1 for "forever" markers. Convert to 0 (FrameForever).
+	rawEndFrame := toFloat64(markerArr[3])
+	var endFrame uint32
+	if rawEndFrame < 0 {
+		endFrame = 0 // FrameForever
+	} else {
+		endFrame = uint32(rawEndFrame)
+	}
+
 	marker := &MarkerDef{
 		Type:       toString(markerArr[0]),
 		Text:       toString(markerArr[1]),
 		StartFrame: uint32(toFloat64(markerArr[2])),
-		EndFrame:   uint32(toFloat64(markerArr[3])),
+		EndFrame:   endFrame,
 		PlayerID:   int32(toFloat64(markerArr[4])),
 		Color:      toString(markerArr[5]),
 		Side:       sideIndexToString(int(toFloat64(markerArr[6]))),
@@ -359,6 +404,26 @@ func (p *ParserV1) parseMarkerPosition(pos interface{}) *MarkerPosition {
 			}
 			if len(arr) > 3 {
 				mp.Alpha = float32(toFloat64(arr[3]))
+			}
+			// Parse style override fields: [frame, pos, dir, alpha, text, color, size, type, brush, ...]
+			if len(arr) > 4 {
+				mp.Text = toString(arr[4])
+			}
+			if len(arr) > 5 {
+				mp.Color = toString(arr[5])
+			}
+			if len(arr) > 6 {
+				if sizeArr, ok := arr[6].([]interface{}); ok {
+					for _, s := range sizeArr {
+						mp.Size = append(mp.Size, float32(toFloat64(s)))
+					}
+				}
+			}
+			if len(arr) > 7 {
+				mp.Type = toString(arr[7])
+			}
+			if len(arr) > 8 {
+				mp.Brush = toString(arr[8])
 			}
 			return mp
 		}

@@ -51,8 +51,9 @@ func (w *ProtobufWriterV1) WriteChunks(ctx context.Context, outputPath string, r
 		return fmt.Errorf("create chunks directory: %w", err)
 	}
 
-	// Calculate chunk count
-	chunkCount := (result.FrameCount + result.ChunkSize - 1) / result.ChunkSize
+	// Calculate chunk count (EndFrame is last frame index, so total frames = EndFrame + 1)
+	totalFrames := result.EndFrame + 1
+	chunkCount := (totalFrames + result.ChunkSize - 1) / result.ChunkSize
 	if chunkCount == 0 {
 		chunkCount = 1
 	}
@@ -76,8 +77,9 @@ func (w *ProtobufWriterV1) WriteChunks(ctx context.Context, outputPath string, r
 
 // toProtoManifest converts ParseResult to pbv1.Manifest
 func (w *ProtobufWriterV1) toProtoManifest(result *ParseResult) *pbv1.Manifest {
-	// Calculate chunk count
-	chunkCount := (result.FrameCount + result.ChunkSize - 1) / result.ChunkSize
+	// Calculate chunk count (EndFrame is last frame index, so total frames = EndFrame + 1)
+	totalFrames := result.EndFrame + 1
+	chunkCount := (totalFrames + result.ChunkSize - 1) / result.ChunkSize
 	if chunkCount == 0 {
 		chunkCount = 1
 	}
@@ -86,7 +88,7 @@ func (w *ProtobufWriterV1) toProtoManifest(result *ParseResult) *pbv1.Manifest {
 		Version:          uint32(SchemaVersionV1),
 		WorldName:        result.WorldName,
 		MissionName:      result.MissionName,
-		FrameCount:       result.FrameCount,
+		EndFrame:         result.EndFrame,
 		ChunkSize:        result.ChunkSize,
 		CaptureDelayMs:   result.CaptureDelayMs,
 		ChunkCount:       chunkCount,
@@ -148,13 +150,18 @@ func (w *ProtobufWriterV1) toProtoEntityDef(e EntityDef) *pbv1.EntityDef {
 // toProtoEvent converts schema-agnostic Event to pbv1.Event
 func (w *ProtobufWriterV1) toProtoEvent(e Event) *pbv1.Event {
 	return &pbv1.Event{
-		FrameNum: e.FrameNum,
-		Type:     e.Type,
-		SourceId: e.SourceID,
-		TargetId: e.TargetID,
-		Message:  e.Message,
-		Distance: e.Distance,
-		Weapon:   e.Weapon,
+		FrameNum:   e.FrameNum,
+		Type:       e.Type,
+		SourceId:   e.SourceID,
+		TargetId:   e.TargetID,
+		Message:    e.Message,
+		Distance:   e.Distance,
+		Weapon:     e.Weapon,
+		PosX:       e.PosX,
+		PosY:       e.PosY,
+		ObjectType: e.ObjectType,
+		UnitName:   e.UnitName,
+		Side:       e.Side,
 	}
 }
 
@@ -183,6 +190,11 @@ func (w *ProtobufWriterV1) toProtoMarker(m MarkerDef) *pbv1.MarkerDef {
 			Direction:  p.Direction,
 			Alpha:      p.Alpha,
 			LineCoords: p.LineCoords,
+			Text:       p.Text,
+			Color:      p.Color,
+			Size:       p.Size,
+			Type:       p.Type,
+			Brush:      p.Brush,
 		})
 	}
 
@@ -203,9 +215,10 @@ func (w *ProtobufWriterV1) toProtoTimeSample(t TimeSample) *pbv1.TimeSample {
 // buildChunk builds a protobuf Chunk from EntityPositions for the given chunk index
 func (w *ProtobufWriterV1) buildChunk(result *ParseResult, chunkIdx uint32) *pbv1.Chunk {
 	startFrame := chunkIdx * result.ChunkSize
+	totalFrames := result.EndFrame + 1
 	endFrame := startFrame + result.ChunkSize
-	if endFrame > result.FrameCount {
-		endFrame = result.FrameCount
+	if endFrame > totalFrames {
+		endFrame = totalFrames
 	}
 
 	chunk := &pbv1.Chunk{

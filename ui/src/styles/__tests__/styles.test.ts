@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { describe, it, expect } from "vitest";
 import { readFileSync, existsSync } from "fs";
 import { resolve, dirname } from "path";
@@ -16,11 +17,11 @@ describe("CSS style files", () => {
     });
 
     it("defines accent color custom properties", () => {
-      expect(css).toContain("--accent-blue");
-      expect(css).toContain("--accent-red");
-      expect(css).toContain("--accent-green");
+      expect(css).toContain("--accent-primary");
+      expect(css).toContain("--accent-danger");
+      expect(css).toContain("--accent-success");
       expect(css).toContain("--accent-purple");
-      expect(css).toContain("--accent-orange");
+      expect(css).toContain("--accent-warning");
     });
 
     it("defines base color custom properties", () => {
@@ -137,7 +138,6 @@ describe("CSS style files", () => {
 
   describe("CSS Modules", () => {
     const moduleFiles = [
-      "MissionModal.module.css",
       "Hint.module.css",
       "CounterDisplay.module.css",
       "TopBar.module.css",
@@ -161,34 +161,6 @@ describe("CSS style files", () => {
 
     it("exists and is non-empty", () => {
       expect(css.length).toBeGreaterThan(0);
-    });
-
-    it("defines --marker-speed custom property", () => {
-      expect(css).toContain("--marker-speed");
-    });
-
-    it("contains marker transition rules", () => {
-      expect(css).toContain(".marker-transition .leaflet-marker-icon.animation");
-      expect(css).toContain(".marker-transition .leaflet-popup.animation");
-    });
-
-    it("disables transitions during zoom", () => {
-      expect(css).toContain(".marker-transition.zooming");
-      expect(css).toContain("transition: none !important");
-    });
-
-    it("defines speed classes from speed-1 to speed-10", () => {
-      for (let i = 1; i <= 10; i++) {
-        expect(css).toContain(`.speed-${i}`);
-      }
-    });
-
-    it("has correct speed durations", () => {
-      expect(css).toMatch(/\.speed-1\s*\{[^}]*--marker-speed:\s*1s/);
-      expect(css).toMatch(/\.speed-2\s*\{[^}]*--marker-speed:\s*0\.9s/);
-      expect(css).toMatch(/\.speed-5\s*\{[^}]*--marker-speed:\s*0\.6s/);
-      expect(css).toMatch(/\.speed-9\s*\{[^}]*--marker-speed:\s*0\.2s/);
-      expect(css).toMatch(/\.speed-10\s*\{[^}]*--marker-speed:\s*0\.15s/);
     });
 
     it("contains side colour utilities using custom properties", () => {

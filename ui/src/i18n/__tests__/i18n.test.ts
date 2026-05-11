@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { createRoot } from "solid-js";
 import { detectLocale, createI18n } from "../i18n";
 import type { Locale } from "../i18n";
@@ -167,9 +167,9 @@ describe("createI18n", () => {
 });
 
 describe("translations completeness", () => {
-  const locales: Locale[] = ["en", "ru", "de", "cs", "it"];
+  const locales: Locale[] = ["en", "ru", "de", "cs", "it", "fr", "fi", "uk"];
 
-  it("every key has all 5 locale entries", () => {
+  it("every key has all 8 locale entries", () => {
     for (const [key, entry] of Object.entries(translations)) {
       for (const locale of locales) {
         expect(

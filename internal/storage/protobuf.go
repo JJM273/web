@@ -45,7 +45,7 @@ func (e *ProtobufEngine) GetManifest(ctx context.Context, filename string) (*Man
 		Version:        pbManifest.Version,
 		WorldName:      pbManifest.WorldName,
 		MissionName:    pbManifest.MissionName,
-		FrameCount:     pbManifest.FrameCount,
+		EndFrame:       pbManifest.EndFrame,
 		ChunkSize:      pbManifest.ChunkSize,
 		CaptureDelayMs: pbManifest.CaptureDelayMs,
 		ChunkCount:     pbManifest.ChunkCount,
@@ -68,13 +68,18 @@ func (e *ProtobufEngine) GetManifest(ctx context.Context, filename string) (*Man
 
 	for _, evt := range pbManifest.Events {
 		manifest.Events = append(manifest.Events, Event{
-			FrameNum: evt.FrameNum,
-			Type:     evt.Type,
-			SourceID: evt.SourceId,
-			TargetID: evt.TargetId,
-			Message:  evt.Message,
-			Distance: evt.Distance,
-			Weapon:   evt.Weapon,
+			FrameNum:   evt.FrameNum,
+			Type:       evt.Type,
+			SourceID:   evt.SourceId,
+			TargetID:   evt.TargetId,
+			Message:    evt.Message,
+			Distance:   evt.Distance,
+			Weapon:     evt.Weapon,
+			PosX:       evt.PosX,
+			PosY:       evt.PosY,
+			ObjectType: evt.ObjectType,
+			UnitName:   evt.UnitName,
+			Side:       evt.Side,
 		})
 	}
 
@@ -83,6 +88,6 @@ func (e *ProtobufEngine) GetManifest(ctx context.Context, filename string) (*Man
 
 func (e *ProtobufEngine) Convert(ctx context.Context, jsonPath, outputPath string) error {
 	converter := NewConverter(DefaultChunkSize)
-	return converter.Convert(ctx, jsonPath, outputPath, "protobuf")
+	return converter.Convert(ctx, jsonPath, outputPath)
 }
 

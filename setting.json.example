@@ -17,7 +17,8 @@
 		"headerTitle": "",
 		"websiteLogo": "",
 		"websiteLogoSize": "32px",
-		"websiteURL": ""
+		"websiteURL": "",
+		"cssOverrides": {}
 	},
 	"conversion": {
 		"batchSize": 1,
@@ -30,5 +31,21 @@
 		"enabled": false,
 		"pingInterval": "30s",
 		"pingTimeout": "10s"
+	},
+	"auth": {
+		"mode": "public",
+		"sessionTTL": "24h",
+		"adminSteamIds": [],
+		"steamApiKey": "",
+		"password": ""
+	},
+	"httpServer": {
+		"readTimeout": "120s",
+		"readHeaderTimeout": "30s",
+		"writeTimeout": "120s",
+		"idleTimeout": "120s"
+	},
+	"cors": {
+		"allowedOrigins": []
 	}
 }

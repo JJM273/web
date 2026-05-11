@@ -10,7 +10,7 @@ type Manifest struct {
 	Version          uint32      `json:"version"`
 	WorldName        string      `json:"worldName"`
 	MissionName      string      `json:"missionName"`
-	FrameCount       uint32      `json:"frameCount"`
+	EndFrame         uint32      `json:"endFrame"`
 	ChunkSize        uint32      `json:"chunkSize"`
 	CaptureDelayMs   uint32      `json:"captureDelayMs"`
 	ChunkCount       uint32      `json:"chunkCount"`
@@ -22,13 +22,18 @@ type Manifest struct {
 
 // Event represents a game event
 type Event struct {
-	FrameNum uint32  `json:"frameNum"`
-	Type     string  `json:"type"`
-	SourceID uint32  `json:"sourceId"`
-	TargetID uint32  `json:"targetId"`
-	Message  string  `json:"message,omitempty"`
-	Distance float32 `json:"distance,omitempty"`
-	Weapon   string  `json:"weapon,omitempty"`
+	FrameNum   uint32  `json:"frameNum"`
+	Type       string  `json:"type"`
+	SourceID   uint32  `json:"sourceId"`
+	TargetID   uint32  `json:"targetId"`
+	Message    string  `json:"message,omitempty"`
+	Distance   float32 `json:"distance,omitempty"`
+	Weapon     string  `json:"weapon,omitempty"`
+	PosX       float32 `json:"posX,omitempty"`
+	PosY       float32 `json:"posY,omitempty"`
+	ObjectType string  `json:"objectType,omitempty"`
+	UnitName   string  `json:"unitName,omitempty"`
+	Side       string  `json:"side,omitempty"`
 }
 
 // EntityDef defines an entity's metadata

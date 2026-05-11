@@ -1,11 +1,13 @@
 import { createSignal, Show, onMount, For } from "solid-js";
 import type { JSX, Accessor } from "solid-js";
-import { ApiClient, type BuildInfo } from "../../../data/api-client";
+import { ApiClient, type BuildInfo } from "../../../data/apiClient";
 import { useI18n } from "../../../hooks/useLocale";
 import { LOCALES } from "../../../i18n/i18n";
 import type { Locale } from "../../../i18n/i18n";
-import { LOCALE_LABELS } from "../../mission-selector/constants";
-import { XIcon } from "./Icons";
+import { LOCALE_LABELS } from "../../recording-selector/constants";
+import { XIcon } from "../../../components/Icons";
+import { basePath } from "../../../data/basePath";
+import ui from "../../../components/ui.module.css";
 import styles from "./AboutModal.module.css";
 
 export interface AboutModalProps {
@@ -37,21 +39,21 @@ export function AboutModal(props: AboutModalProps): JSX.Element {
 
   return (
     <Show when={props.open()}>
-      <div data-testid="about-modal" class={styles.overlay} onClick={(e) => {
+      <div data-testid="about-modal" class={ui.dialogOverlay} onClick={(e) => {
         if (e.target === e.currentTarget) props.onClose();
       }}>
-        <div class={styles.modal}>
+        <div class={ui.dialogCard} style={{ width: "340px" }}>
           {/* Header */}
-          <div class={styles.header}>
-            <span class={styles.headerTitle}>{t("info")}</span>
-            <button class={styles.closeBtn} onClick={() => props.onClose()}>
+          <div class={ui.dialogHeader}>
+            <span class={ui.dialogTitle}>{t("info")}</span>
+            <button class={ui.dialogCloseBtn} onClick={() => props.onClose()}>
               <XIcon size={14} />
             </button>
           </div>
 
           {/* Body */}
           <div class={styles.body}>
-            <img src={`${import.meta.env.BASE_URL}ocap-logo.png`} height="48" alt="OCAP" />
+            <img src={`${basePath}ocap-logo.png`} height="48" alt="OCAP" />
             <span class={styles.appName}>Operation Capture And Playback</span>
             <a class={styles.link} href="https://github.com/OCAP2/OCAP" target="_blank">
               github.com/OCAP2/OCAP
@@ -96,7 +98,7 @@ export function AboutModal(props: AboutModalProps): JSX.Element {
               <div class={styles.sectionLabel}>{t("language")}</div>
               <select
                 data-testid="language-select"
-                class={styles.langSelect}
+                class={ui.select}
                 value={locale()}
                 onChange={(e) => setLocale(e.currentTarget.value as Locale)}
               >

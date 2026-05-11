@@ -65,6 +65,13 @@ type Job struct {
 	// When true, PMTiles go to OutputDir/tiles/ and styles go to OutputDir/styles/.
 	SubDirs bool `json:"-"`
 
+	// CleanupDir is removed on successful completion (e.g. the upload extraction directory).
+	// Set by the caller that creates the temporary directory.
+	CleanupDir string `json:"-"`
+
+	// cancelFunc cancels this job's context (set by JobManager).
+	cancelFunc context.CancelFunc
+
 	// customRun, if set, is used instead of the pipeline for job processing.
 	customRun func(ctx context.Context, job *Job) error
 }

@@ -39,7 +39,7 @@ func TestJSONEngineGetManifest(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "altis", manifest.WorldName)
 	assert.Equal(t, "Test Mission", manifest.MissionName)
-	assert.Equal(t, uint32(100), manifest.FrameCount)
+	assert.Equal(t, uint32(100), manifest.EndFrame)
 	assert.Equal(t, uint32(1000), manifest.CaptureDelayMs)
 	assert.Len(t, manifest.Entities, 2)
 
@@ -86,7 +86,7 @@ func TestJSONEngineGetManifestGzipped(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "tanoa", manifest.WorldName)
 	assert.Equal(t, "Gzipped Mission", manifest.MissionName)
-	assert.Equal(t, uint32(500), manifest.FrameCount)
+	assert.Equal(t, uint32(500), manifest.EndFrame)
 	assert.Equal(t, uint32(500), manifest.CaptureDelayMs) // 0.5 * 1000
 	assert.Len(t, manifest.Entities, 1)
 
@@ -125,7 +125,7 @@ func TestJSONEngineEmptyEntities(t *testing.T) {
 	manifest, err := engine.GetManifest(ctx, "empty")
 	require.NoError(t, err)
 	assert.Equal(t, "stratis", manifest.WorldName)
-	assert.Equal(t, uint32(50), manifest.FrameCount)
+	assert.Equal(t, uint32(50), manifest.EndFrame)
 	assert.Empty(t, manifest.Entities)
 }
 
@@ -217,6 +217,47 @@ func TestJSONEngineEntityWithNoType(t *testing.T) {
 	// Only valid entity should be parsed
 	assert.Len(t, manifest.Entities, 1)
 	assert.Equal(t, "Player1", manifest.Entities[0].Name)
+}
+
+func TestJSONEngineGetManifest_WithEvents(t *testing.T) {
+	dir := t.TempDir()
+
+	testData := `{
+		"worldName": "altis",
+		"missionName": "Event Test",
+		"endFrame": 100,
+		"captureDelay": 1,
+		"entities": [],
+		"events": [
+			[50, "endMission", ["END1", true]],
+			[25, "connected", "Player1"],
+			"not an array",
+			[0],
+			[75, "generalEvent", "Mission complete"]
+		]
+	}`
+
+	err := os.WriteFile(filepath.Join(dir, "events.json"), []byte(testData), 0644)
+	require.NoError(t, err)
+
+	engine := NewJSONEngine(dir)
+	manifest, err := engine.GetManifest(context.Background(), "events")
+	require.NoError(t, err)
+
+	// "not an array" and [0] (len < 2) should be skipped
+	// Valid events in order: endMission (frame 50), connected (frame 25), generalEvent (frame 75)
+	require.Len(t, manifest.Events, 3)
+
+	assert.Equal(t, "endMission", manifest.Events[0].Type)
+	assert.Equal(t, uint32(50), manifest.Events[0].FrameNum)
+
+	assert.Equal(t, "connected", manifest.Events[1].Type)
+	assert.Equal(t, uint32(25), manifest.Events[1].FrameNum)
+	assert.Equal(t, "Player1", manifest.Events[1].Message)
+
+	assert.Equal(t, "generalEvent", manifest.Events[2].Type)
+	assert.Equal(t, uint32(75), manifest.Events[2].FrameNum)
+	assert.Equal(t, "Mission complete", manifest.Events[2].Message)
 }
 
 func TestJSONEngineEntitiesNotArray(t *testing.T) {
