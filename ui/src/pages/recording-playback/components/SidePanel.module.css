@@ -430,6 +430,7 @@
 
 .filterInput {
   flex: 1;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.05);
   border: var(--border-subtle);
   border-radius: 6px;
@@ -604,8 +605,8 @@
 
 .forceStatGrid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
-  gap: 4px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 3px;
 }
 
 .forceStatPill {
@@ -637,6 +638,10 @@
 
 .forceStatNumDeaths {
   color: var(--accent-warning);
+}
+
+.forceStatNumTeamKills {
+  color: var(--accent-danger);
 }
 
 .forceStatLabel {
@@ -706,6 +711,14 @@
   font-size: var(--font-size-md);
   font-family: var(--font-mono);
   color: var(--accent-primary);
+  min-width: 20px;
+  text-align: right;
+}
+
+.leaderboardTeamKills {
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  color: var(--accent-danger);
   min-width: 20px;
   text-align: right;
 }

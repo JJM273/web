@@ -88,7 +88,7 @@ export class EventManager {
       if (victim instanceof Unit && causer instanceof Unit) {
         if (event.victimId !== event.causedById) {
           causer.killCount++;
-          if (victim.side === causer.side) {
+          if (event.isFriendlyFire()) {
             causer.teamKillCount++;
           }
         }
@@ -111,10 +111,12 @@ export class EventManager {
     kills: Map<number, number>;
     deaths: Map<number, number>;
     vehicleKills: Map<number, number>;
+    teamKills: Map<number, number>;
   } {
     const kills = new Map<number, number>();
     const deaths = new Map<number, number>();
     const vehicleKills = new Map<number, number>();
+    const teamKills = new Map<number, number>();
 
     for (const event of this.events) {
       if (event.frameNum > frame) continue;
@@ -135,10 +137,13 @@ export class EventManager {
       // Kill for causer (non-self kills only)
       if (event.causedById !== event.victimId) {
         kills.set(event.causedById, (kills.get(event.causedById) ?? 0) + 1);
+        if (event.isFriendlyFire()) {
+          teamKills.set(event.causedById, (teamKills.get(event.causedById) ?? 0) + 1);
+        }
       }
     }
 
-    return { kills, deaths, vehicleKills };
+    return { kills, deaths, vehicleKills, teamKills };
   }
 
   /** Remove all events and clear the frame index. */
