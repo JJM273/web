@@ -188,6 +188,17 @@ export class PlaybackEngine {
   get captureDelayMs(): Accessor<number> {
     return this._captureDelayMs;
   }
+
+  get missionInfo(): { missionName: string; worldName: string; missionAuthor: string; endFrame: number; captureDelayMs: number } | null {
+    if (!this.manifest) return null;
+    return {
+      missionName: this.manifest.missionName,
+      worldName: this.manifest.worldName,
+      missionAuthor: this.manifest.missionAuthor ?? "",
+      endFrame: this.manifest.endFrame,
+      captureDelayMs: this.manifest.captureDelayMs,
+    };
+  }
   get timeConfig(): TimeConfig {
     const times = this.manifest?.times;
     // Extract mission date and time multiplier from the first time sample

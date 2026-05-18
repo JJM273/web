@@ -1,8 +1,26 @@
 import type { EntityManager } from "./entityManager";
+import type { Side } from "../data/types";
 import { Unit } from "./entities/unit";
 import { Vehicle } from "./entities/vehicle";
 import { GameEvent } from "./events/gameEvent";
 import { HitKilledEvent } from "./events/hitKilledEvent";
+
+export interface GroupKillStats {
+  groupName: string;
+  side: Side;
+  kills: number;
+  deaths: number;
+  vehicleKills: number;
+  unitCount: number;
+  playerCount: number;
+}
+
+export interface SideEquipmentStats {
+  /** vehicle type → count of enemy vehicles this side destroyed */
+  destroyed: Map<string, number>;
+  /** vehicle type → count of this side's vehicles that were lost */
+  lost: Map<string, number>;
+}
 
 /**
  * Manages all mission events for a playback session.
@@ -12,6 +30,7 @@ import { HitKilledEvent } from "./events/hitKilledEvent";
 export class EventManager {
   private events: GameEvent[] = [];
   private frameIndex: Map<number, GameEvent[]> = new Map();
+  private entityManagerRef: EntityManager | null = null;
 
   /** Add an event and index it by frame number. */
   addEvent(event: GameEvent): void {
@@ -51,6 +70,7 @@ export class EventManager {
    * Only "killed" events with a Unit victim (not Vehicle) increment counts.
    */
   resolveReferences(entityManager: EntityManager): void {
+    this.entityManagerRef = entityManager;
     // First pass: resolve names/sides
     for (const event of this.events) {
       if (event instanceof HitKilledEvent) {
@@ -141,9 +161,92 @@ export class EventManager {
     return { kills, deaths, vehicleKills };
   }
 
+  /**
+   * Aggregate kills/deaths by group up to (and including) the given frame.
+   * Keyed by `${side}:${groupName}` to avoid collisions across sides.
+   * Includes all units (AI and players).
+   */
+  getGroupKills(frame: number): GroupKillStats[] {
+    if (!this.entityManagerRef) return [];
+    const { kills, deaths, vehicleKills } = this.getKillDeathCounts(frame);
+
+    const groupMap = new Map<string, GroupKillStats>();
+    for (const unit of this.entityManagerRef.getUnits()) {
+      const key = `${unit.side}:${unit.groupName}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          groupName: unit.groupName,
+          side: unit.side,
+          kills: 0,
+          deaths: 0,
+          vehicleKills: 0,
+          unitCount: 0,
+          playerCount: 0,
+        });
+      }
+      const stats = groupMap.get(key)!;
+      stats.unitCount++;
+      if (unit.isPlayer) stats.playerCount++;
+      stats.kills += kills.get(unit.id) ?? 0;
+      stats.deaths += deaths.get(unit.id) ?? 0;
+      stats.vehicleKills += vehicleKills.get(unit.id) ?? 0;
+    }
+    return Array.from(groupMap.values());
+  }
+
+  /**
+   * Compute vehicle losses and destructions per side up to the given frame.
+   * "destroyed" = vehicles of other sides this side killed.
+   * "lost" = this side's vehicles that were killed (derived from crew side).
+   */
+  getEquipmentLosses(frame: number): Map<Side, SideEquipmentStats> {
+    const em = this.entityManagerRef;
+    if (!em) return new Map();
+
+    const result = new Map<Side, SideEquipmentStats>();
+    const ensureSide = (side: Side): SideEquipmentStats => {
+      if (!result.has(side)) {
+        result.set(side, { destroyed: new Map(), lost: new Map() });
+      }
+      return result.get(side)!;
+    };
+
+    for (const event of this.events) {
+      if (event.frameNum > frame) continue;
+      if (!(event instanceof HitKilledEvent)) continue;
+      if (event.type !== "killed") continue;
+      if (!event.victimIsVehicle) continue;
+
+      const victim = em.getEntity(event.victimId);
+      const causer = em.getEntity(event.causedById);
+      if (!(victim instanceof Vehicle)) continue;
+
+      const vehicleType = victim.vehicleType || "unknown";
+
+      if (causer instanceof Unit) {
+        const causerStats = ensureSide(causer.side);
+        causerStats.destroyed.set(
+          vehicleType,
+          (causerStats.destroyed.get(vehicleType) ?? 0) + 1,
+        );
+      }
+
+      const vehicleSide = victim.getSideFromCrew((id) => em.getEntity(id));
+      if (vehicleSide) {
+        const victimStats = ensureSide(vehicleSide);
+        victimStats.lost.set(
+          vehicleType,
+          (victimStats.lost.get(vehicleType) ?? 0) + 1,
+        );
+      }
+    }
+    return result;
+  }
+
   /** Remove all events and clear the frame index. */
   clear(): void {
     this.events = [];
     this.frameIndex = new Map();
+    this.entityManagerRef = null;
   }
 }
