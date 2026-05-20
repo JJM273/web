@@ -65,7 +65,7 @@ export function AARTab(): JSX.Element {
   const sideRows = createMemo(() => {
     const snaps = engine.entitySnapshots();
     const units = engine.entityManager.getUnits();
-    const { kills } = killDeathCounts();
+    const { kills, deaths } = killDeathCounts();
     return SIDES.map((side) => {
       const sideUnits = units.filter((u) => u.side === side);
       if (sideUnits.length === 0) return null;
@@ -75,8 +75,8 @@ export function AARTab(): JSX.Element {
         const snap = snaps.get(u.id);
         if (snap && snap.alive) alive++;
       }
-      const dead = total - alive;
       const sideKills = sideUnits.reduce((s, u) => s + (kills.get(u.id) ?? 0), 0);
+      const sideDeaths = sideUnits.reduce((s, u) => s + (deaths.get(u.id) ?? 0), 0);
       const eq = equipLosses().get(side);
       const vehiclesDestroyed = eq
         ? Array.from(eq.destroyed.values()).reduce((a, b) => a + b, 0)
@@ -84,8 +84,8 @@ export function AARTab(): JSX.Element {
       const vehiclesLost = eq
         ? Array.from(eq.lost.values()).reduce((a, b) => a + b, 0)
         : 0;
-      return { side, total, alive, dead, sideKills, vehiclesDestroyed, vehiclesLost };
-    }).filter(Boolean) as { side: Side; total: number; alive: number; dead: number; sideKills: number; vehiclesDestroyed: number; vehiclesLost: number }[];
+      return { side, total, alive, deaths: sideDeaths, kills: sideKills, vehiclesDestroyed, vehiclesLost };
+    }).filter(Boolean) as { side: Side; total: number; alive: number; deaths: number; kills: number; vehiclesDestroyed: number; vehiclesLost: number }[];
   });
 
   function buildHtml(): string {
@@ -103,18 +103,18 @@ export function AARTab(): JSX.Element {
       <tr>
         <td><b>${SIDE_LABELS[r.side]}</b></td>
         <td>${r.total}</td>
-        <td>${r.dead} (${r.total > 0 ? Math.round((r.dead / r.total) * 100) : 0}%)</td>
-        <td>${r.sideKills}</td>
+        <td>${r.deaths} (${r.total > 0 ? Math.round((r.deaths / r.total) * 100) : 0}%)</td>
+        <td>${r.kills}</td>
         <td>${r.vehiclesDestroyed}</td>
         <td>${r.vehiclesLost}</td>
       </tr>`).join("");
 
     const groupSections = SIDES.flatMap((side) => {
       const sideGroups = groups
-        .filter((g) => g.side === side)
-        .sort((a, b) => b.kills - a.kills);
+        .filter((g: { side: string; }) => g.side === side)
+        .sort((a: { kills: number; }, b: { kills: number; }) => b.kills - a.kills);
       if (sideGroups.length === 0) return [];
-      const groupRows = sideGroups.map((g) => `
+      const groupRows = sideGroups.map((g: { groupName: any; playerCount: number; unitCount: number; kills: any; vehicleKills: any; deaths: any; }) => `
         <tr>
           <td>${g.groupName || "Ungrouped"}</td>
           <td>${g.playerCount}P / ${g.unitCount - g.playerCount}AI</td>
@@ -212,7 +212,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
 
         {/* Mission header */}
         <Show when={info()}>
-          {(mi) => (
+          {(mi: () => { (): any; new(): any; missionName: any; worldName: any; missionAuthor: any; endFrame: number; captureDelayMs: number; }) => (
             <div style={{ "background": "rgba(255,255,255,0.03)", "border-radius": "8px", padding: "10px 12px", "border": "1px solid rgba(255,255,255,0.06)" }}>
               <div style={{ "font-family": "var(--font-mono)", "font-size": "13px", "font-weight": "700", color: "var(--text-primary)", "margin-bottom": "4px" }}>
                 {mi().missionName}
@@ -244,15 +244,15 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
                 <span style={{ "text-align": "right" }}>VL</span>
               </div>
               <For each={sideRows()}>
-                {(r) => (
+                {(r: { side: string | number; total: any; deaths: number; kills: number; vehiclesDestroyed: number; vehiclesLost: number; }) => (
                   <div style={{ display: "grid", "grid-template-columns": "1fr 40px 40px 40px 40px 40px", gap: "4px", padding: "6px 4px", background: SIDE_BG_COLORS[r.side], "border-radius": "5px", "border": `1px solid ${SIDE_COLORS_UI[r.side]}20`, "font-family": "var(--font-mono)", "font-size": "11px" }}>
                     <span style={{ color: SIDE_COLORS_UI[r.side], "font-weight": "700" }}>{SIDE_LABELS[r.side]}</span>
                     <span style={{ "text-align": "right", color: "var(--text-secondary)" }}>{r.total}</span>
-                    <span style={{ "text-align": "right", color: r.dead > 0 ? "var(--accent-warning)" : "var(--text-dimmest)" }}>
-                      {r.dead}
+                    <span style={{ "text-align": "right", color: r.deaths > 0 ? "var(--accent-warning)" : "var(--text-dimmest)" }}>
+                      {r.deaths}
                     </span>
-                    <span style={{ "text-align": "right", color: r.sideKills > 0 ? "var(--accent-danger)" : "var(--text-dimmest)" }}>
-                      {r.sideKills}
+                    <span style={{ "text-align": "right", color: r.kills > 0 ? "var(--accent-danger)" : "var(--text-dimmest)" }}>
+                      {r.kills}
                     </span>
                     <span style={{ "text-align": "right", color: r.vehiclesDestroyed > 0 ? "var(--accent-danger)" : "var(--text-dimmest)" }}>
                       {r.vehiclesDestroyed}
@@ -276,10 +276,10 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
             <div class={styles.statsLabel}>{t("by_group")}</div>
             <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "2px" }}>
               <For each={SIDES}>
-                {(side) => {
+                {(side: string | number) => {
                   const sideGroups = groupStats()
-                    .filter((g) => g.side === side)
-                    .sort((a, b) => b.kills - a.kills);
+                    .filter((g: { side: any; }) => g.side === side)
+                    .sort((a: { kills: number; }, b: { kills: number; }) => b.kills - a.kills);
                   return (
                     <Show when={sideGroups.length > 0}>
                       <div style={{ "margin-bottom": "6px" }}>
@@ -290,7 +290,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
                           </span>
                         </div>
                         <For each={sideGroups}>
-                          {(g) => (
+                          {(g: { groupName: any; playerCount: number; unitCount: number; kills: any; vehicleKills: any; deaths: any; }) => (
                             <div style={{ display: "flex", "align-items": "center", gap: "4px", padding: "3px 6px", "font-family": "var(--font-mono)", "font-size": "11px" }}>
                               <span style={{ flex: "1", color: "var(--text-secondary)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
                                 {g.groupName || t("ungrouped")}
@@ -319,7 +319,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
             <div class={styles.statsLabel}>{t("equipment")}</div>
             <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "6px" }}>
               <For each={SIDES}>
-                {(side) => {
+                {(side: string | number) => {
                   const eq = equipLosses().get(side);
                   if (!eq || (eq.destroyed.size === 0 && eq.lost.size === 0)) return null;
                   return (
