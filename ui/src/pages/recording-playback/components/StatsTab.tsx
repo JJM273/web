@@ -6,7 +6,7 @@ import { useEngine } from "../../../hooks/useEngine";
 import { useCustomize } from "../../../hooks/useCustomize";
 import { useI18n } from "../../../hooks/useLocale";
 import styles from "./SidePanel.module.css";
-import type { GroupKillStats, SideEquipmentStats } from "../../../playback/eventManager";
+import type { SideEquipmentStats } from "../../../playback/eventManager";
 
 const SIDES: Side[] = ["WEST", "EAST", "GUER", "CIV"];
 
@@ -63,6 +63,16 @@ export function StatsTab(): JSX.Element {
 
   const equipmentLosses = createMemo(() =>
     engine.eventManager.getEquipmentLosses(engine.currentFrame()),
+  );
+
+  // Reactive array of sides that have any equipment data — drives <For> so it
+  // re-renders reactively (static SIDES array inside <For> loses tracking).
+  const equipmentBySide = createMemo(() =>
+    SIDES.flatMap((side) => {
+      const eq = equipmentLosses().get(side);
+      if (!eq || (eq.destroyed.size === 0 && eq.lost_combat.size === 0 && eq.lost_captured.size === 0 && eq.captured.size === 0)) return [];
+      return [{ side, eq }];
+    }),
   );
 
   const [groupsExpanded, setGroupsExpanded] = createSignal(true);
@@ -231,7 +241,7 @@ export function StatsTab(): JSX.Element {
         </Show>
 
         {/* Equipment losses/destructions per side */}
-        <Show when={equipmentLosses().size > 0}>
+        <Show when={equipmentBySide().length > 0}>
           <div>
             <button
               style={{ display: "flex", "align-items": "center", gap: "6px", background: "none", border: "none", padding: "0", cursor: "pointer", width: "100%" }}
@@ -244,10 +254,8 @@ export function StatsTab(): JSX.Element {
             </button>
             <Show when={equipExpanded()}>
               <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "6px" }}>
-                <For each={SIDES}>
-                  {(side) => {
-                    const eq = equipmentLosses().get(side);
-                    if (!eq || (eq.destroyed.size === 0 && eq.lost.size === 0)) return null;
+                <For each={equipmentBySide()}>
+                  {({ side, eq }: { side: Side; eq: SideEquipmentStats }) => {
                     const formatCounts = (m: Map<string, number>) =>
                       Array.from(m.entries())
                         .sort((a, b) => b[1] - a[1])
@@ -267,10 +275,22 @@ export function StatsTab(): JSX.Element {
                             <span style={{ color: "var(--text-muted)" }}>{formatCounts(eq.destroyed)}</span>
                           </div>
                         </Show>
-                        <Show when={eq.lost.size > 0}>
+                        <Show when={eq.lost_combat.size > 0}>
+                          <div style={{ "font-size": "10px", "font-family": "var(--font-mono)", "margin-bottom": "3px" }}>
+                            <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost_combat")}: </span>
+                            <span style={{ color: "var(--text-muted)" }}>{formatCounts(eq.lost_combat)}</span>
+                          </div>
+                        </Show>
+                        <Show when={eq.lost_captured.size > 0}>
+                          <div style={{ "font-size": "10px", "font-family": "var(--font-mono)", "margin-bottom": "3px" }}>
+                            <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost_captured")}: </span>
+                            <span style={{ color: "var(--text-muted)" }}>{formatCounts(eq.lost_captured)}</span>
+                          </div>
+                        </Show>
+                        <Show when={eq.captured.size > 0}>
                           <div style={{ "font-size": "10px", "font-family": "var(--font-mono)" }}>
-                            <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost")}: </span>
-                            <span style={{ color: "var(--text-muted)" }}>{formatCounts(eq.lost)}</span>
+                            <span style={{ color: "var(--accent-success)", "font-weight": "600" }}>{t("veh_captured")}: </span>
+                            <span style={{ color: "var(--text-muted)" }}>{formatCounts(eq.captured)}</span>
                           </div>
                         </Show>
                       </div>

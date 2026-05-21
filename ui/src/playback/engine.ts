@@ -358,6 +358,9 @@ export class PlaybackEngine {
     // Resolve entity references on hit/killed events
     this.eventManager.resolveReferences(this.entityManager);
 
+    // Build vehicle ownership timelines and capture events
+    this.eventManager.processVehicleOwnership(this.entityManager);
+
     // Build counter state from counter events
     this.buildCounterState(manifest.events);
 

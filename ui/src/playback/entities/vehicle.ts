@@ -8,6 +8,8 @@ import { Unit } from "./unit";
  */
 export class Vehicle extends Entity {
   readonly vehicleType: string;
+  /** Side from the entity definition — set at mission start, used as ownership fallback. */
+  readonly staticSide: Side | null;
   crew: number[];
 
   constructor(
@@ -17,11 +19,13 @@ export class Vehicle extends Entity {
     startFrame: number,
     endFrame: number,
     vehicleType: string,
+    staticSide: Side | null = null,
     positions: EntityState[] | null = null,
     iconType: string = "unknown",
   ) {
     super(id, name, type, startFrame, endFrame, positions, iconType);
     this.vehicleType = vehicleType;
+    this.staticSide = staticSide;
     this.crew = [];
   }
 

@@ -82,7 +82,7 @@ export function AARTab(): JSX.Element {
         ? Array.from(eq.destroyed.values()).reduce((a, b) => a + b, 0)
         : 0;
       const vehiclesLost = eq
-        ? Array.from(eq.lost.values()).reduce((a, b) => a + b, 0)
+        ? [...eq.lost_combat.values(), ...eq.lost_captured.values()].reduce((a, b) => a + b, 0)
         : 0;
       return { side, total, alive, deaths: sideDeaths, kills: sideKills, vehiclesDestroyed, vehiclesLost };
     }).filter(Boolean) as { side: Side; total: number; alive: number; deaths: number; kills: number; vehiclesDestroyed: number; vehiclesLost: number }[];
@@ -132,15 +132,21 @@ export function AARTab(): JSX.Element {
 
     const eqSections = SIDES.map((side) => {
       const sideEq = eq.get(side);
-      if (!sideEq || (sideEq.destroyed.size === 0 && sideEq.lost.size === 0)) return "";
+      if (!sideEq || (sideEq.destroyed.size === 0 && sideEq.lost_combat.size === 0 && sideEq.lost_captured.size === 0 && sideEq.captured.size === 0)) return "";
       const destrHtml = mapToSortedEntries(sideEq.destroyed)
         .map(([t, c]) => `<li>${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}</li>`).join("");
-      const lostHtml = mapToSortedEntries(sideEq.lost)
+      const lostCombatHtml = mapToSortedEntries(sideEq.lost_combat)
+        .map(([t, c]) => `<li>${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}</li>`).join("");
+      const lostCapturedHtml = mapToSortedEntries(sideEq.lost_captured)
+        .map(([t, c]) => `<li>${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}</li>`).join("");
+      const capturedHtml = mapToSortedEntries(sideEq.captured)
         .map(([t, c]) => `<li>${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}</li>`).join("");
       return `
         <h3 style="color:#aaa;margin:16px 0 4px">${SIDE_LABELS[side]}</h3>
         ${destrHtml ? `<p><b>Destroyed:</b></p><ul>${destrHtml}</ul>` : ""}
-        ${lostHtml ? `<p><b>Lost:</b></p><ul>${lostHtml}</ul>` : ""}`;
+        ${lostCombatHtml ? `<p><b>Lost (Combat):</b></p><ul>${lostCombatHtml}</ul>` : ""}
+        ${lostCapturedHtml ? `<p><b>Lost (Captured):</b></p><ul>${lostCapturedHtml}</ul>` : ""}
+        ${capturedHtml ? `<p><b>Captured:</b></p><ul>${capturedHtml}</ul>` : ""}`;
     }).join("");
 
     return `<!DOCTYPE html>
@@ -321,7 +327,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
               <For each={SIDES}>
                 {(side: string | number) => {
                   const eq = equipLosses().get(side);
-                  if (!eq || (eq.destroyed.size === 0 && eq.lost.size === 0)) return null;
+                  if (!eq || (eq.destroyed.size === 0 && eq.lost_combat.size === 0 && eq.lost_captured.size === 0 && eq.captured.size === 0)) return null;
                   return (
                     <div style={{ background: SIDE_BG_COLORS[side], "border-radius": "6px", padding: "8px 10px", border: `1px solid ${SIDE_COLORS_UI[side]}20` }}>
                       <div style={{ color: SIDE_COLORS_UI[side], "font-size": "10px", "font-family": "var(--font-mono)", "font-weight": "700", "margin-bottom": "5px" }}>
@@ -335,11 +341,27 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
                           </span>
                         </div>
                       </Show>
-                      <Show when={eq.lost.size > 0}>
-                        <div style={{ "font-size": "10px", "font-family": "var(--font-mono)" }}>
-                          <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost")}: </span>
+                      <Show when={eq.lost_combat.size > 0}>
+                        <div style={{ "font-size": "10px", "font-family": "var(--font-mono)", "margin-bottom": "3px" }}>
+                          <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost_combat")}: </span>
                           <span style={{ color: "var(--text-muted)" }}>
-                            {mapToSortedEntries(eq.lost).map(([tp, c]) => `${c}× ${VEHICLE_TYPE_LABELS[tp] ?? tp}`).join(", ")}
+                            {mapToSortedEntries(eq.lost_combat).map(([tp, c]) => `${c}× ${VEHICLE_TYPE_LABELS[tp] ?? tp}`).join(", ")}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={eq.lost_captured.size > 0}>
+                        <div style={{ "font-size": "10px", "font-family": "var(--font-mono)", "margin-bottom": "3px" }}>
+                          <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>{t("lost_captured")}: </span>
+                          <span style={{ color: "var(--text-muted)" }}>
+                            {mapToSortedEntries(eq.lost_captured).map(([tp, c]) => `${c}× ${VEHICLE_TYPE_LABELS[tp] ?? tp}`).join(", ")}
+                          </span>
+                        </div>
+                      </Show>
+                      <Show when={eq.captured.size > 0}>
+                        <div style={{ "font-size": "10px", "font-family": "var(--font-mono)" }}>
+                          <span style={{ color: "var(--accent-success)", "font-weight": "600" }}>{t("veh_captured")}: </span>
+                          <span style={{ color: "var(--text-muted)" }}>
+                            {mapToSortedEntries(eq.captured).map(([tp, c]) => `${c}× ${VEHICLE_TYPE_LABELS[tp] ?? tp}`).join(", ")}
                           </span>
                         </div>
                       </Show>
