@@ -8,7 +8,7 @@ import {
 } from "../events/counterEvent";
 import { EventManager } from "../eventManager";
 import { EntityManager } from "../entityManager";
-import type { EntityDef } from "../../data/types";
+import type { EntityDef, EntityState, AliveState } from "../../data/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -633,6 +633,164 @@ describe("EventManager", () => {
       expect(mgr.getEventsAtFrame(50)).toEqual([newEvent]);
       // Old frame should still be empty
       expect(mgr.getEventsAtFrame(10)).toEqual([]);
+    });
+  });
+
+  describe("processVehicleOwnership – initial-side suppression window", () => {
+    /** Builds an EntityState array for a vehicle.
+     *  Every frame has empty crew except the ones specified in crewFrames. */
+    function makeVehiclePositions(
+      length: number,
+      crewFrames: { relFrame: number; crewIds: number[] }[] = [],
+    ): EntityState[] {
+      const positions: EntityState[] = Array.from(
+        { length },
+        () => ({
+          position: [0, 0] as [number, number],
+          direction: 0,
+          alive: 1 as AliveState,
+          crewIds: [],
+        }),
+      );
+      for (const { relFrame, crewIds } of crewFrames) {
+        positions[relFrame] = { ...positions[relFrame], crewIds };
+      }
+      return positions;
+    }
+
+    /** Builds a dense alive-positions array for a unit. */
+    function makeUnitPositions(
+      length: number,
+    ): EntityState[] {
+      return Array.from({ length }, () => ({
+        position: [0, 0] as [number, number],
+        direction: 0,
+        alive: 1 as AliveState,
+      }));
+    }
+
+    it("suppresses capture when first crew boards within the 60s window", () => {
+      // Scenario: garage vehicle, staticSide="CIV", WEST crew boards at frame 10
+      // captureDelayMs=1000 → 10s from spawn → well inside the 60s window.
+      const em = new EntityManager();
+      const mgr = new EventManager();
+
+      // Vehicle: startFrame=0, staticSide="CIV", WEST crew boards at relative frame 10
+      em.addEntity(
+        vehicleDef({
+          id: 10,
+          side: "CIV",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeVehiclePositions(200, [{ relFrame: 10, crewIds: [1] }]),
+        }),
+      );
+
+      // WEST unit: alive at frame 10 (absolute)
+      em.addEntity(
+        unitDef({
+          id: 1,
+          side: "WEST",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeUnitPositions(200),
+        }),
+      );
+
+      mgr.resolveReferences(em);
+      mgr.processVehicleOwnership(em, 1000);
+
+      const losses = mgr.getEquipmentLosses(9999);
+      // No capture should have been recorded
+      expect(losses.get("CIV")?.lost_captured?.get("car") ?? 0).toBe(0);
+      expect(losses.get("WEST")?.captured?.get("car") ?? 0).toBe(0);
+    });
+
+    it("fires a capture when first crew boards after the 60s window", () => {
+      // Scenario: garage vehicle, staticSide="CIV", WEST crew boards at frame 65
+      // captureDelayMs=1000 → 65s from spawn → outside the 60s window.
+      const em = new EntityManager();
+      const mgr = new EventManager();
+
+      em.addEntity(
+        vehicleDef({
+          id: 10,
+          side: "CIV",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeVehiclePositions(200, [{ relFrame: 65, crewIds: [1] }]),
+        }),
+      );
+
+      em.addEntity(
+        unitDef({
+          id: 1,
+          side: "WEST",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeUnitPositions(200),
+        }),
+      );
+
+      mgr.resolveReferences(em);
+      mgr.processVehicleOwnership(em, 1000);
+
+      const losses = mgr.getEquipmentLosses(9999);
+      // Capture SHOULD be recorded: CIV lost it, WEST gained it
+      expect(losses.get("CIV")?.lost_captured?.get("car") ?? 0).toBe(1);
+      expect(losses.get("WEST")?.captured?.get("car") ?? 0).toBe(1);
+    });
+
+    it("fires a subsequent capture even when it occurs within the 60s window", () => {
+      // Scenario: WEST vehicle, WEST crew boards at frame 5 (within window, no capture).
+      // EAST crew boards at frame 15 (still within window but subsequent boarding).
+      // The suppression window only applies to the FIRST-EVER boarding.
+      const em = new EntityManager();
+      const mgr = new EventManager();
+
+      em.addEntity(
+        vehicleDef({
+          id: 10,
+          side: "WEST",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeVehiclePositions(200, [
+            { relFrame: 5, crewIds: [1] },   // WEST boards → initial owner
+            { relFrame: 10, crewIds: [] },    // crew exits
+            { relFrame: 15, crewIds: [2] },   // EAST boards → capture
+          ]),
+        }),
+      );
+
+      // WEST unit alive through frame 5 only (exits before frame 10)
+      em.addEntity(
+        unitDef({
+          id: 1,
+          side: "WEST",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeUnitPositions(200),
+        }),
+      );
+
+      // EAST unit alive from frame 0
+      em.addEntity(
+        unitDef({
+          id: 2,
+          side: "EAST",
+          startFrame: 0,
+          endFrame: 199,
+          positions: makeUnitPositions(200),
+        }),
+      );
+
+      mgr.resolveReferences(em);
+      mgr.processVehicleOwnership(em, 1000);
+
+      const losses = mgr.getEquipmentLosses(9999);
+      // WEST lost 1 vehicle (captured), EAST captured 1
+      expect(losses.get("WEST")?.lost_captured?.get("car") ?? 0).toBe(1);
+      expect(losses.get("EAST")?.captured?.get("car") ?? 0).toBe(1);
     });
   });
 });

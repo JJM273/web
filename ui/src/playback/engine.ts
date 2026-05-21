@@ -359,7 +359,7 @@ export class PlaybackEngine {
     this.eventManager.resolveReferences(this.entityManager);
 
     // Build vehicle ownership timelines and capture events
-    this.eventManager.processVehicleOwnership(this.entityManager);
+    this.eventManager.processVehicleOwnership(this.entityManager, this._captureDelayMs());
 
     // Build counter state from counter events
     this.buildCounterState(manifest.events);

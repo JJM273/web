@@ -42,6 +42,8 @@ interface VehicleCaptureEvent {
   toSide: Side;
 }
 
+const INITIAL_SIDE_WINDOW_MS = 60_000;
+
 /**
  * Manages all mission events for a playback session.
  * Indexes events by frame number for O(1) lookup.
@@ -229,7 +231,7 @@ export class EventManager {
    *     (a) player boards an AI-only vehicle (player exception), or
    *     (b) previous owner group has fully exited (exclusive rule).
    */
-  processVehicleOwnership(entityManager: EntityManager): void {
+  processVehicleOwnership(entityManager: EntityManager, captureDelayMs: number): void {
     this.ownershipTimeline = new Map();
     this.vehicleCaptureEvents = [];
 
@@ -270,8 +272,11 @@ export class EventManager {
 
         if (currentOwnerGroupKey === null) {
           // First live crew aboard — establish initial ownership.
-          // If the boarding side differs from the vehicle's static side, count as a capture.
-          if (currentSide !== null && newSide !== currentSide) {
+          // Suppress the capture if it happens within INITIAL_SIDE_WINDOW_MS of the
+          // vehicle's startFrame: garage/game-logic spawns begin side-less and should
+          // not count as a capture when the first crew boards.
+          const msFromSpawn = (absoluteFrame - vehicle.startFrame) * captureDelayMs;
+          if (currentSide !== null && newSide !== currentSide && msFromSpawn >= INITIAL_SIDE_WINDOW_MS) {
             this.vehicleCaptureEvents.push({
               frame: absoluteFrame,
               vehicleId: vehicle.id,
