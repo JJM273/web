@@ -1,4 +1,4 @@
-import { createSignal, type Accessor } from "solid-js";
+import { createSignal, createEffect, untrack, type Accessor } from "solid-js";
 
 import type { Manifest, EventDef } from "../data/types";
 import type { TimeConfig } from "./time";
@@ -108,6 +108,9 @@ export class PlaybackEngine {
   private _captureDelayMs: Accessor<number>;
   private _setCaptureDelayMs: (v: number) => void;
 
+  private _antistasiNameFix: Accessor<boolean>;
+  private _setAntistasiNameFix: (v: boolean) => void;
+
   // ─── Playback loop state ───
   /** Max delta (ms) before treating a gap as a background-tab resume. */
   private static readonly MAX_FRAME_DELTA_MS = 100;
@@ -157,6 +160,16 @@ export class PlaybackEngine {
     const [captureDelayMs, setCaptureDelayMs] = createSignal(1000);
     this._captureDelayMs = captureDelayMs;
     this._setCaptureDelayMs = setCaptureDelayMs;
+
+    const [antistasiNameFix, setAntistasiNameFix] = createSignal(false);
+    this._antistasiNameFix = antistasiNameFix;
+    this._setAntistasiNameFix = setAntistasiNameFix;
+
+    // Re-run snapshot computation when the name-fix toggle changes while paused.
+    createEffect(() => {
+      antistasiNameFix();
+      this.computeSnapshots(untrack(() => this._currentFrame()));
+    });
   }
 
   // ─── Public signal accessors ───
@@ -187,6 +200,12 @@ export class PlaybackEngine {
   }
   get captureDelayMs(): Accessor<number> {
     return this._captureDelayMs;
+  }
+  get antistasiNameFix(): Accessor<boolean> {
+    return this._antistasiNameFix;
+  }
+  setAntistasiNameFix(v: boolean): void {
+    this._setAntistasiNameFix(v);
   }
 
   get missionInfo(): { missionName: string; worldName: string; missionAuthor: string; endFrame: number; captureDelayMs: number } | null {
@@ -490,7 +509,7 @@ export class PlaybackEngine {
             direction: state.direction,
             alive: state.alive,
             side,
-            name: state.name ?? entity.name,
+            name: this._antistasiNameFix() ? entity.name : (state.name ?? entity.name),
             iconType: entity.iconType,
             isPlayer,
             isInVehicle: state.isInVehicle ?? false,
@@ -508,6 +527,9 @@ export class PlaybackEngine {
       const relativeFrame = entity.getRelativeFrameIndex(frame);
       const snap = entity.getStateAtFrame(relativeFrame);
       if (snap) {
+        if (this._antistasiNameFix()) {
+          snap.name = entity.name;
+        }
         // For vehicles, derive side and isPlayer from crew in the position data
         if (entity instanceof Vehicle) {
           const state = entity.positions?.[relativeFrame];

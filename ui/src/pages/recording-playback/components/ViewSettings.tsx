@@ -244,6 +244,37 @@ export function ViewSettings(props: ViewSettingsProps): JSX.Element {
               );
             }}
           </For>
+
+          {/* ── Compatibility ── */}
+          <div class={`${styles.sectionLabel} ${styles.sectionBorder}`}>
+            {t("section_compatibility")}
+          </div>
+          <button
+            class={styles.checkItem}
+            title="Fixes naming issue caused by AU's use of setName on AI units"
+            onClick={() => engine.setAntistasiNameFix(!engine.antistasiNameFix())}
+          >
+            <div
+              class={styles.checkbox}
+              classList={{
+                [styles.checkboxActive]: engine.antistasiNameFix(),
+                [styles.checkboxInactive]: !engine.antistasiNameFix(),
+              }}
+            >
+              <Show when={engine.antistasiNameFix()}>
+                <div class={styles.checkboxDot} />
+              </Show>
+            </div>
+            <span
+              class={styles.itemText}
+              classList={{
+                [styles.itemTextActive]: engine.antistasiNameFix(),
+                [styles.itemTextInactive]: !engine.antistasiNameFix(),
+              }}
+            >
+              {t("antistasi_compat")}
+            </span>
+          </button>
         </div>
       </Show>
     </div>
