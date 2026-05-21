@@ -2,6 +2,7 @@
 expand the data summarizationa and exploration of OCAP web app to facilitate better after action reviews. Prime motivation is for Antistasi Ultimate missions, but functionality should be useful for any mission
 
 ### TODO for initial release
+    - [ ] KNOWN BUG vehicles spawned from the garage and possible by game logic are counting as captures because they start as empty with no side (even if for 1 frame), the proximity based side inference would fix this but we may want a work around for now, possibly time base inference, if side changes from empty in first 30s of existence, don't count as a capture, just set initial side.
     - [ ] classify AI groups by vehicle, aircraft, infantry based on weapon used
     - [ ] BUG summary on recording select page is missing in dev
     - [ ] add per side AAR summary to recording select page summary
@@ -15,6 +16,7 @@ expand the data summarizationa and exploration of OCAP web app to facilitate bet
     - [ ] DEFERRED: full streaming/chunk-format support for ownership scanning — processVehicleOwnership currently only processes vehicles with a positions array (JSON recording format); streaming format uses mutable vehicle.crew updated at render time and would need a separate per-frame crew scan or a crew-change event stream
 
 ### Completed
+    - [x] BUG new vehicle logic for captures does not seem to be working properly. not counting captures of civ vehicles, captures of enemy vehicles revert back.
     - [x] count vehicle captures, and split Lost to Lost (cap), Lost (destroyed)
     - [x] BUG lost vehicle counts don't match Destroyed by other sides
     - [x] BUG unit names do not match between map and lists (exists pre-fork)

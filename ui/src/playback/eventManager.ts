@@ -251,7 +251,15 @@ export class EventManager {
         const crewUnits: Unit[] = [];
         for (const id of crewIds) {
           const entity = entityManager.getEntity(id);
-          if (entity instanceof Unit) crewUnits.push(entity);
+          if (!(entity instanceof Unit)) continue;
+          // Skip dead crew — Arma keeps corpses in crewIds, which would
+          // falsely revert ownership to a prior side's dead occupants.
+          if (entity.positions) {
+            const unitRelFrame = absoluteFrame - entity.startFrame;
+            if (unitRelFrame < 0 || unitRelFrame >= entity.positions.length) continue;
+            if (!entity.positions[unitRelFrame]?.alive) continue;
+          }
+          crewUnits.push(entity);
         }
         if (crewUnits.length === 0) continue;
 
@@ -261,7 +269,17 @@ export class EventManager {
         const newGroupKey = `${newSide}:${representativeUnit.groupName}`;
 
         if (currentOwnerGroupKey === null) {
-          // Establish initial ownership
+          // First live crew aboard — establish initial ownership.
+          // If the boarding side differs from the vehicle's static side, count as a capture.
+          if (currentSide !== null && newSide !== currentSide) {
+            this.vehicleCaptureEvents.push({
+              frame: absoluteFrame,
+              vehicleId: vehicle.id,
+              vehicleType: vehicle.vehicleType || "unknown",
+              fromSide: currentSide,
+              toSide: newSide,
+            });
+          }
           currentSide = newSide;
           currentOwnerGroupKey = newGroupKey;
           changes.push({ frame: absoluteFrame, side: currentSide, ownerGroup: representativeUnit.groupName });
