@@ -227,7 +227,7 @@ describe("UnitsTab", () => {
     expect(twos.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("counts deleted units as dead and styles them", () => {
+  it("styles a despawned unit (no kill event) as inactive", () => {
     const { engine, renderer } = createTestEngine();
     engine.loadRecording(
       makeManifest([
@@ -254,7 +254,6 @@ describe("UnitsTab", () => {
       ]),
     );
 
-    // Advance to frame 1 so snapshots are populated
     engine.seekTo(1);
 
     render(() => (
@@ -263,12 +262,155 @@ describe("UnitsTab", () => {
       </TestProviders>
     ));
 
-    // Deleted unit counts as dead: alive=1, total=2
-    expect(screen.getByText("1")).toBeTruthy(); // alive count in group header
-
-    // Deleted unit row must have the dead styling
+    // Unit despawned without a kill event → inactive styling, not dead
     const deletedRow = screen.getByText("Deleted Unit").closest("button");
-    expect(deletedRow?.className).toMatch(/unitRowDead/);
+    expect(deletedRow?.className).toMatch(/unitRowInactive/);
+    expect(deletedRow?.className).not.toMatch(/unitRowDead/);
+  });
+
+  it("styles a unit killed by a kill event as dead", () => {
+    const { engine, renderer } = createTestEngine();
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({
+            id: 1,
+            name: "Victim",
+            side: "WEST",
+            groupName: "Alpha",
+            role: "Trooper",
+            positions: [
+              { position: [100, 200], direction: 0, alive: 1 },
+              { position: [100, 200], direction: 0, alive: 0 }, // dead at frame 1
+            ],
+          }),
+          unitDef({
+            id: 2,
+            name: "Killer",
+            side: "EAST",
+            groupName: "Bravo",
+            role: "Trooper",
+            positions: [
+              { position: [50, 50], direction: 0, alive: 1 },
+              { position: [50, 50], direction: 0, alive: 1 },
+            ],
+          }),
+        ],
+        [killedEvent(1, 1, 2)],
+      ),
+    );
+
+    setActiveSide("WEST");
+    engine.seekTo(1);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <UnitsTab />
+      </TestProviders>
+    ));
+
+    const row = screen.getByText("Victim").closest("button");
+    expect(row?.className).toMatch(/unitRowDead/);
+    expect(row?.className).not.toMatch(/unitRowInactive/);
+  });
+
+  it("keeps dead styling for a killed unit even after body despawns", () => {
+    const { engine, renderer } = createTestEngine();
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({
+            id: 1,
+            name: "Victim",
+            side: "WEST",
+            groupName: "Alpha",
+            role: "Trooper",
+            endFrame: 3, // body despawns at frame 3
+            positions: [
+              { position: [100, 200], direction: 0, alive: 1 },
+              { position: [100, 200], direction: 0, alive: 0 },
+              { position: [100, 200], direction: 0, alive: 0 },
+              { position: [100, 200], direction: 0, alive: 0 },
+            ],
+          }),
+          unitDef({
+            id: 2,
+            name: "Killer",
+            side: "EAST",
+            groupName: "Bravo",
+            role: "Trooper",
+            positions: [
+              { position: [50, 50], direction: 0, alive: 1 },
+              { position: [50, 50], direction: 0, alive: 1 },
+            ],
+          }),
+        ],
+        [killedEvent(1, 1, 2)],
+      ),
+    );
+
+    setActiveSide("WEST");
+    engine.seekTo(10); // well beyond endFrame=3, no snapshot for unit 1
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <UnitsTab />
+      </TestProviders>
+    ));
+
+    // No snapshot but deaths=1 → still dead, not inactive
+    const row = screen.getByText("Victim").closest("button");
+    expect(row?.className).toMatch(/unitRowDead/);
+    expect(row?.className).not.toMatch(/unitRowInactive/);
+  });
+
+  it("styles a respawned unit as alive even when they have prior deaths", () => {
+    const { engine, renderer } = createTestEngine();
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({
+            id: 1,
+            name: "Respawner",
+            side: "WEST",
+            groupName: "Alpha",
+            role: "Trooper",
+            positions: [
+              { position: [100, 200], direction: 0, alive: 1 },
+              { position: [100, 200], direction: 0, alive: 0 }, // killed
+              { position: [200, 300], direction: 0, alive: 1 }, // respawned
+            ],
+          }),
+          unitDef({
+            id: 2,
+            name: "Killer",
+            side: "EAST",
+            groupName: "Bravo",
+            role: "Trooper",
+            positions: [
+              { position: [50, 50], direction: 0, alive: 1 },
+              { position: [50, 50], direction: 0, alive: 1 },
+              { position: [50, 50], direction: 0, alive: 1 },
+            ],
+          }),
+        ],
+        [killedEvent(1, 1, 2)],
+      ),
+    );
+
+    setActiveSide("WEST");
+    engine.seekTo(2); // respawned frame — alive=1 in snapshot, deaths=1 in events
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <UnitsTab />
+      </TestProviders>
+    ));
+
+    const row = screen.getByText("Respawner").closest("button");
+    // Alive in snapshot takes priority — no dead or inactive class
+    expect(row?.className).not.toMatch(/unitRowDead/);
+    expect(row?.className).not.toMatch(/unitRowInactive/);
   });
 
   it("only renders populated side tabs when multiple sides have units", () => {
