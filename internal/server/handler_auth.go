@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-fuego/fuego"
 	"github.com/yohcop/openid-go"
 )
 
@@ -116,6 +118,20 @@ func (h *Handler) SteamCallback(w http.ResponseWriter, r *http.Request) {
 		role = "admin"
 	}
 
+	// In steamAllowlist mode, check if the user is allowed (admins always bypass)
+	if h.setting.Auth.Mode == "steamAllowlist" && role != "admin" {
+		allowed, err := h.repoOperation.IsOnAllowlist(r.Context(), steamID)
+		if err != nil {
+			log.Printf("WARN: allowlist check failed for %s: %v", steamID, err)
+			h.authRedirect(w, r, "auth_error=steam_error")
+			return
+		}
+		if !allowed {
+			h.authRedirect(w, r, "auth_error=not_allowed")
+			return
+		}
+	}
+
 	// Fetch Steam profile data if API key is configured
 	claimOpts := []ClaimOption{WithRole(role)}
 	if h.setting.Auth.SteamAPIKey != "" {
@@ -154,6 +170,36 @@ func (h *Handler) authRedirect(w http.ResponseWriter, r *http.Request, query str
 	http.Redirect(w, r, prefix, http.StatusTemporaryRedirect)
 }
 
+// PasswordLogin validates a shared password and issues a viewer JWT.
+func (h *Handler) PasswordLogin(w http.ResponseWriter, r *http.Request) {
+	if h.setting.Auth.Mode != "password" {
+		http.Error(w, "password login not enabled", http.StatusNotFound)
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	if req.Password == "" || subtle.ConstantTimeCompare([]byte(req.Password), []byte(h.setting.Auth.Password)) != 1 {
+		http.Error(w, "invalid password", http.StatusUnauthorized)
+		return
+	}
+
+	token, err := h.jwt.Create("password", WithRole("viewer"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"token": token})
+}
+
 // MeResponse describes the authentication status returned by GetMe.
 type MeResponse struct {
 	Authenticated bool   `json:"authenticated"`
@@ -179,10 +225,64 @@ func (h *Handler) GetMe(c ContextNoBody) (MeResponse, error) {
 	return resp, nil
 }
 
+// AuthConfigResponse describes the authentication configuration returned by GetAuthConfig.
+type AuthConfigResponse struct {
+	Mode string `json:"mode"`
+}
+
+// GetAuthConfig returns the current authentication mode so the frontend
+// can show the appropriate login controls.
+func (h *Handler) GetAuthConfig(c ContextNoBody) (AuthConfigResponse, error) {
+	return AuthConfigResponse{Mode: h.setting.Auth.Mode}, nil
+}
+
+// AdminAuthConfigResponse exposes read-only auth configuration to admins
+// for display in the admin UI. Sensitive values (password, raw API key)
+// are not included — only their presence.
+type AdminAuthConfigResponse struct {
+	Mode                 string   `json:"mode"`
+	AdminSteamIDs        []string `json:"adminSteamIds"`
+	SteamAPIKeyConfigured bool    `json:"steamApiKeyConfigured"`
+	SessionTTL           string   `json:"sessionTtl"`
+}
+
+// GetAdminAuthConfig returns the read-only auth configuration for the
+// admin UI. Requires admin role.
+func (h *Handler) GetAdminAuthConfig(c ContextNoBody) (AdminAuthConfigResponse, error) {
+	ids := h.setting.Auth.AdminSteamIDs
+	if ids == nil {
+		ids = []string{}
+	}
+	return AdminAuthConfigResponse{
+		Mode:                  h.setting.Auth.Mode,
+		AdminSteamIDs:         ids,
+		SteamAPIKeyConfigured: h.setting.Auth.SteamAPIKey != "",
+		SessionTTL:            h.setting.Auth.SessionTTL.String(),
+	}, nil
+}
+
 // Logout is a no-op for stateless JWT — the frontend discards the token.
 func (h *Handler) Logout(c ContextNoBody) (any, error) {
 	c.SetStatus(http.StatusNoContent)
 	return nil, nil
+}
+
+// requireViewer is middleware that enforces site-wide access control.
+// In "public" mode it passes all requests through. In all other modes
+// it requires a valid JWT with any role (viewer or admin).
+func (h *Handler) requireViewer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.setting.Auth.Mode == "public" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		token := bearerToken(r)
+		if token == "" || h.jwt.Validate(token) != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // requireAdmin is middleware that checks for a valid JWT Bearer token with admin role.
@@ -274,4 +374,44 @@ func randomHex(n int) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(b), nil
+}
+
+// AllowlistResponse contains the Steam IDs on the allowlist.
+type AllowlistResponse struct {
+	SteamIDs []string `json:"steamIds"`
+}
+
+// GetAllowlist returns all Steam IDs on the allowlist.
+func (h *Handler) GetAllowlist(c ContextNoBody) (AllowlistResponse, error) {
+	ids, err := h.repoOperation.GetAllowlist(c.Context())
+	if err != nil {
+		return AllowlistResponse{}, err
+	}
+	return AllowlistResponse{SteamIDs: ids}, nil
+}
+
+// AddToAllowlist adds a Steam ID to the allowlist.
+func (h *Handler) AddToAllowlist(c ContextNoBody) (any, error) {
+	steamID := c.PathParam("steamId")
+	if steamID == "" {
+		return nil, fuego.BadRequestError{Detail: "steamId is required"}
+	}
+	if err := h.repoOperation.AddToAllowlist(c.Context(), steamID); err != nil {
+		return nil, err
+	}
+	c.SetStatus(http.StatusNoContent)
+	return nil, nil
+}
+
+// RemoveFromAllowlist removes a Steam ID from the allowlist.
+func (h *Handler) RemoveFromAllowlist(c ContextNoBody) (any, error) {
+	steamID := c.PathParam("steamId")
+	if steamID == "" {
+		return nil, fuego.BadRequestError{Detail: "steamId is required"}
+	}
+	if err := h.repoOperation.RemoveFromAllowlist(c.Context(), steamID); err != nil {
+		return nil, err
+	}
+	c.SetStatus(http.StatusNoContent)
+	return nil, nil
 }

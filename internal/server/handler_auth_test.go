@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -541,6 +543,72 @@ func TestRequireAdmin_AllowsAdminRole(t *testing.T) {
 	assert.True(t, called)
 }
 
+func TestRequireViewer_PublicMode_AllowsUnauthenticated(t *testing.T) {
+	hdlr := newSteamAuthHandler(nil)
+	hdlr.setting.Auth.Mode = "public"
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	hdlr.requireViewer(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, called)
+}
+
+func TestRequireViewer_NonPublic_RejectsUnauthenticated(t *testing.T) {
+	hdlr := newSteamAuthHandler(nil)
+	hdlr.setting.Auth.Mode = "steam"
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+
+	hdlr.requireViewer(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+	assert.False(t, called)
+}
+
+func TestRequireViewer_NonPublic_AllowsViewerRole(t *testing.T) {
+	hdlr := newSteamAuthHandler(nil)
+	hdlr.setting.Auth.Mode = "steam"
+	token, err := hdlr.jwt.Create("76561198012345678", WithRole("viewer"))
+	require.NoError(t, err)
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	hdlr.requireViewer(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, called)
+}
+
+func TestRequireViewer_NonPublic_AllowsAdminRole(t *testing.T) {
+	hdlr := newSteamAuthHandler(nil)
+	hdlr.setting.Auth.Mode = "steam"
+	token, err := hdlr.jwt.Create("76561198012345678", WithRole("admin"))
+	require.NoError(t, err)
+
+	called := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { called = true })
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+
+	hdlr.requireViewer(next).ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.True(t, called)
+}
+
 func TestGetMe_ReturnsRole(t *testing.T) {
 	hdlr := newSteamAuthHandler(nil)
 	token, err := hdlr.jwt.Create("76561198012345678", WithRole("viewer"))
@@ -556,3 +624,459 @@ func TestGetMe_ReturnsRole(t *testing.T) {
 	assert.True(t, resp.Authenticated)
 	assert.Equal(t, "viewer", resp.Role)
 }
+
+func newPasswordAuthHandler(password string) Handler {
+	return Handler{
+		setting: Setting{
+			Secret: "test-secret",
+			Auth: Auth{
+				Mode:       "password",
+				SessionTTL: time.Hour,
+				Password:   password,
+			},
+		},
+		jwt: NewJWTManager("test-secret", time.Hour),
+	}
+}
+
+func TestPasswordLogin_CorrectPassword(t *testing.T) {
+	hdlr := newPasswordAuthHandler("s3cret")
+
+	body := strings.NewReader(`{"password":"s3cret"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+	var resp map[string]string
+	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
+	require.NotEmpty(t, resp["token"])
+
+	claims := hdlr.jwt.Claims(resp["token"])
+	require.NotNil(t, claims)
+	assert.Equal(t, "viewer", claims.Role)
+	assert.Equal(t, "password", claims.Subject)
+}
+
+func TestPasswordLogin_WrongPassword(t *testing.T) {
+	hdlr := newPasswordAuthHandler("s3cret")
+
+	body := strings.NewReader(`{"password":"wrong"}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestPasswordLogin_EmptyPassword(t *testing.T) {
+	hdlr := newPasswordAuthHandler("s3cret")
+
+	body := strings.NewReader(`{"password":""}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusUnauthorized, rec.Code)
+}
+
+func TestPasswordLogin_InvalidJSON(t *testing.T) {
+	hdlr := newPasswordAuthHandler("s3cret")
+
+	body := strings.NewReader(`not json`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPasswordLogin_MissingBody(t *testing.T) {
+	hdlr := newPasswordAuthHandler("s3cret")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/password", nil)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestPasswordLogin_WrongMode(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{
+			Secret: "test-secret",
+			Auth:   Auth{Mode: "steam", SessionTTL: time.Hour, Password: "s3cret"},
+		},
+		jwt: NewJWTManager("test-secret", time.Hour),
+	}
+	body := strings.NewReader(`{"password":"s3cret"}`)
+	req := httptest.NewRequest("POST", "/api/v1/auth/password", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	hdlr.PasswordLogin(rec, req)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+}
+
+// --- GetAuthConfig tests ---
+
+func TestGetAuthConfig_ReturnsPublicMode(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{Auth: Auth{Mode: "public"}},
+	}
+
+	ctx := fuego.NewMockContextNoBody()
+	resp, err := hdlr.GetAuthConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "public", resp.Mode)
+}
+
+func TestGetAuthConfig_ReturnsPasswordMode(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{Auth: Auth{Mode: "password"}},
+	}
+
+	ctx := fuego.NewMockContextNoBody()
+	resp, err := hdlr.GetAuthConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "password", resp.Mode)
+}
+
+func TestGetAuthConfig_ReturnsSteamMode(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{Auth: Auth{Mode: "steam"}},
+	}
+
+	ctx := fuego.NewMockContextNoBody()
+	resp, err := hdlr.GetAuthConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "steam", resp.Mode)
+}
+
+func TestGetAuthConfig_ReturnsEmptyWhenNotSet(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{},
+	}
+
+	ctx := fuego.NewMockContextNoBody()
+	resp, err := hdlr.GetAuthConfig(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "", resp.Mode)
+}
+
+// --- Allowlist CRUD tests ---
+
+func newAllowlistAuthHandler(t *testing.T, adminIDs []string) Handler {
+	t.Helper()
+	repo, err := NewRepoOperation(filepath.Join(t.TempDir(), "test.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { repo.db.Close() })
+	return Handler{
+		repoOperation: repo,
+		setting: Setting{
+			Secret: "test-secret",
+			Auth: Auth{
+				Mode:          "steamAllowlist",
+				SessionTTL:    time.Hour,
+				AdminSteamIDs: adminIDs,
+			},
+		},
+		jwt:              NewJWTManager("test-secret", time.Hour),
+		openIDCache:      openid.NewSimpleDiscoveryCache(),
+		openIDNonceStore: openid.NewSimpleNonceStore(),
+		openIDVerifier:   mockVerifier{claimedID: "https://steamcommunity.com/openid/id/76561198012345678"},
+	}
+}
+
+func TestAllowlistCRUD(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	ctx := context.Background()
+
+	// Empty allowlist
+	ids, err := hdlr.repoOperation.GetAllowlist(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+
+	// Add a Steam ID
+	err = hdlr.repoOperation.AddToAllowlist(ctx, "76561198012345678")
+	require.NoError(t, err)
+
+	// Verify it's there
+	ids, err = hdlr.repoOperation.GetAllowlist(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"76561198012345678"}, ids)
+
+	// Add again (idempotent)
+	err = hdlr.repoOperation.AddToAllowlist(ctx, "76561198012345678")
+	require.NoError(t, err)
+
+	ids, err = hdlr.repoOperation.GetAllowlist(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"76561198012345678"}, ids)
+
+	// IsOnAllowlist
+	on, err := hdlr.repoOperation.IsOnAllowlist(ctx, "76561198012345678")
+	require.NoError(t, err)
+	assert.True(t, on)
+
+	on, err = hdlr.repoOperation.IsOnAllowlist(ctx, "76561198099999999")
+	require.NoError(t, err)
+	assert.False(t, on)
+
+	// Remove
+	err = hdlr.repoOperation.RemoveFromAllowlist(ctx, "76561198012345678")
+	require.NoError(t, err)
+
+	ids, err = hdlr.repoOperation.GetAllowlist(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+}
+
+func TestGetAllowlist_Handler(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	ctx := context.Background()
+
+	// Seed data
+	require.NoError(t, hdlr.repoOperation.AddToAllowlist(ctx, "76561198012345678"))
+	require.NoError(t, hdlr.repoOperation.AddToAllowlist(ctx, "76561198099999999"))
+
+	mockCtx := fuego.NewMockContextNoBody()
+	resp, err := hdlr.GetAllowlist(mockCtx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"76561198012345678", "76561198099999999"}, resp.SteamIDs)
+}
+
+func TestAddToAllowlist_Handler(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{"steamId": "76561198012345678"}
+
+	_, err := hdlr.AddToAllowlist(mockCtx)
+	require.NoError(t, err)
+
+	// Verify it was added
+	ids, err := hdlr.repoOperation.GetAllowlist(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"76561198012345678"}, ids)
+}
+
+func TestAddToAllowlist_Handler_MissingSteamID(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{}
+
+	_, err := hdlr.AddToAllowlist(mockCtx)
+	require.Error(t, err)
+	var bad fuego.BadRequestError
+	require.ErrorAs(t, err, &bad)
+	assert.Contains(t, bad.Detail, "steamId is required")
+}
+
+func TestRemoveFromAllowlist_Handler_MissingSteamID(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{}
+
+	_, err := hdlr.RemoveFromAllowlist(mockCtx)
+	require.Error(t, err)
+	var bad fuego.BadRequestError
+	require.ErrorAs(t, err, &bad)
+	assert.Contains(t, bad.Detail, "steamId is required")
+}
+
+func TestGetAdminAuthConfig_FullyPopulated(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{
+			Auth: Auth{
+				Mode:          "steamAllowlist",
+				SessionTTL:    24 * time.Hour,
+				AdminSteamIDs: []string{"76561198000000001", "76561198000000002"},
+				SteamAPIKey:   "secret-key-here",
+			},
+		},
+	}
+
+	resp, err := hdlr.GetAdminAuthConfig(fuego.NewMockContextNoBody())
+	require.NoError(t, err)
+	assert.Equal(t, "steamAllowlist", resp.Mode)
+	assert.Equal(t, []string{"76561198000000001", "76561198000000002"}, resp.AdminSteamIDs)
+	assert.True(t, resp.SteamAPIKeyConfigured)
+	assert.Equal(t, "24h0m0s", resp.SessionTTL)
+}
+
+func TestGetAdminAuthConfig_EmptyAdminsReturnsSliceNotNil(t *testing.T) {
+	hdlr := Handler{
+		setting: Setting{
+			Auth: Auth{
+				Mode:       "public",
+				SessionTTL: time.Hour,
+				// AdminSteamIDs left as nil intentionally
+			},
+		},
+	}
+
+	resp, err := hdlr.GetAdminAuthConfig(fuego.NewMockContextNoBody())
+	require.NoError(t, err)
+	assert.Equal(t, "public", resp.Mode)
+	assert.NotNil(t, resp.AdminSteamIDs)
+	assert.Empty(t, resp.AdminSteamIDs)
+	assert.False(t, resp.SteamAPIKeyConfigured)
+	assert.Equal(t, "1h0m0s", resp.SessionTTL)
+
+	// JSON shape: adminSteamIds must serialize as [], never null.
+	b, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.Contains(t, string(b), `"adminSteamIds":[]`)
+}
+
+func TestGetAllowlist_Handler_RepoError(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	// Force the repo error path by closing the underlying DB.
+	require.NoError(t, hdlr.repoOperation.db.Close())
+
+	_, err := hdlr.GetAllowlist(fuego.NewMockContextNoBody())
+	require.Error(t, err)
+}
+
+func TestAddToAllowlist_Handler_RepoError(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	require.NoError(t, hdlr.repoOperation.db.Close())
+
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{"steamId": "76561198012345678"}
+
+	_, err := hdlr.AddToAllowlist(mockCtx)
+	require.Error(t, err)
+}
+
+func TestRemoveFromAllowlist_Handler_RepoError(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	require.NoError(t, hdlr.repoOperation.db.Close())
+
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{"steamId": "76561198012345678"}
+
+	_, err := hdlr.RemoveFromAllowlist(mockCtx)
+	require.Error(t, err)
+}
+
+func TestGetAdminAuthConfig_SteamAPIKeyAbsentVsPresent(t *testing.T) {
+	withoutKey := Handler{setting: Setting{Auth: Auth{Mode: "steam", SessionTTL: time.Hour}}}
+	withKey := Handler{setting: Setting{Auth: Auth{Mode: "steam", SessionTTL: time.Hour, SteamAPIKey: "x"}}}
+
+	r1, err := withoutKey.GetAdminAuthConfig(fuego.NewMockContextNoBody())
+	require.NoError(t, err)
+	assert.False(t, r1.SteamAPIKeyConfigured)
+
+	r2, err := withKey.GetAdminAuthConfig(fuego.NewMockContextNoBody())
+	require.NoError(t, err)
+	assert.True(t, r2.SteamAPIKeyConfigured)
+}
+
+func TestRemoveFromAllowlist_Handler(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, nil)
+	ctx := context.Background()
+
+	// Seed data
+	require.NoError(t, hdlr.repoOperation.AddToAllowlist(ctx, "76561198012345678"))
+
+	mockCtx := fuego.NewMockContextNoBody()
+	mockCtx.PathParams = map[string]string{"steamId": "76561198012345678"}
+
+	_, err := hdlr.RemoveFromAllowlist(mockCtx)
+	require.NoError(t, err)
+
+	// Verify it was removed
+	ids, err := hdlr.repoOperation.GetAllowlist(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, ids)
+}
+
+// --- SteamCallback allowlist mode tests ---
+
+func TestSteamCallback_AllowlistMode_AllowedUser(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, []string{"76561198099999999"}) // different admin
+	hdlr.openIDVerifier = mockVerifier{claimedID: "https://steamcommunity.com/openid/id/76561198012345678"}
+
+	// Add the user to the allowlist
+	require.NoError(t, hdlr.repoOperation.AddToAllowlist(context.Background(), "76561198012345678"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/steam/callback?nonce=abc", nil)
+	req.AddCookie(&http.Cookie{Name: cookieNonce, Value: "abc"})
+	rec := httptest.NewRecorder()
+
+	hdlr.SteamCallback(rec, req)
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+
+	loc := rec.Header().Get("Location")
+	assert.Contains(t, loc, "auth_token=")
+	assert.NotContains(t, loc, "auth_error")
+
+	u, err := url.Parse(loc)
+	require.NoError(t, err)
+	tokenValue := u.Query().Get("auth_token")
+	claims := hdlr.jwt.Claims(tokenValue)
+	require.NotNil(t, claims)
+	assert.Equal(t, "viewer", claims.Role)
+}
+
+func TestSteamCallback_AllowlistMode_DeniedUser(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, []string{"76561198099999999"}) // different admin
+	hdlr.openIDVerifier = mockVerifier{claimedID: "https://steamcommunity.com/openid/id/76561198012345678"}
+	// Do NOT add to allowlist
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/steam/callback?nonce=abc", nil)
+	req.AddCookie(&http.Cookie{Name: cookieNonce, Value: "abc"})
+	rec := httptest.NewRecorder()
+
+	hdlr.SteamCallback(rec, req)
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "auth_error=not_allowed")
+}
+
+func TestSteamCallback_AllowlistMode_DBErrorRedirectsToSteamError(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, []string{"76561198099999999"}) // different admin → goes through allowlist check
+	hdlr.openIDVerifier = mockVerifier{claimedID: "https://steamcommunity.com/openid/id/76561198012345678"}
+	// Force IsOnAllowlist to fail by closing the underlying DB.
+	require.NoError(t, hdlr.repoOperation.db.Close())
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/steam/callback?nonce=abc", nil)
+	req.AddCookie(&http.Cookie{Name: cookieNonce, Value: "abc"})
+	rec := httptest.NewRecorder()
+
+	hdlr.SteamCallback(rec, req)
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+	assert.Contains(t, rec.Header().Get("Location"), "auth_error=steam_error")
+}
+
+func TestSteamCallback_AllowlistMode_AdminBypass(t *testing.T) {
+	hdlr := newAllowlistAuthHandler(t, []string{"76561198012345678"}) // same as the mock verifier
+	hdlr.openIDVerifier = mockVerifier{claimedID: "https://steamcommunity.com/openid/id/76561198012345678"}
+	// Do NOT add to allowlist — admin should bypass
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/steam/callback?nonce=abc", nil)
+	req.AddCookie(&http.Cookie{Name: cookieNonce, Value: "abc"})
+	rec := httptest.NewRecorder()
+
+	hdlr.SteamCallback(rec, req)
+	assert.Equal(t, http.StatusTemporaryRedirect, rec.Code)
+
+	loc := rec.Header().Get("Location")
+	assert.Contains(t, loc, "auth_token=")
+	assert.NotContains(t, loc, "auth_error")
+
+	u, err := url.Parse(loc)
+	require.NoError(t, err)
+	tokenValue := u.Query().Get("auth_token")
+	claims := hdlr.jwt.Claims(tokenValue)
+	require.NotNil(t, claims)
+	assert.Equal(t, "admin", claims.Role)
+}
+

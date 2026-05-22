@@ -87,3 +87,74 @@
   filter: brightness(1.1);
   border-color: rgba(255, 255, 255, 0.15);
 }
+
+.authControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.passwordForm {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.passwordInput {
+  padding: 6px var(--space-md);
+  border: var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  width: 140px;
+  outline: none;
+  transition: border-color 0.12s;
+}
+
+.passwordInput:focus {
+  border-color: color-mix(in srgb, var(--accent-primary) 30%, transparent);
+}
+
+.passwordSubmit {
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
+  color: var(--accent-primary);
+  font-size: var(--font-size-md);
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.passwordSubmit:hover:not(:disabled) {
+  filter: brightness(1.15);
+}
+
+.passwordSubmit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.authError {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--accent-danger);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  max-width: 250px;
+}
+
+.dismissError {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: var(--font-size-base);
+  padding: 0;
+  line-height: 1;
+}

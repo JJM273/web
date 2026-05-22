@@ -14,11 +14,15 @@ export function CustomizeProvider(props: {
 }): JSX.Element {
   const [config, setConfig] = createSignal<CustomizeConfig>({});
   let appliedProps: string[] = [];
+  const originalTitle = document.title;
+  let titleOverridden = false;
+  let mounted = true;
 
   onMount(async () => {
     try {
       const api = new ApiClient();
       const data = await api.getCustomize();
+      if (!mounted) return;
       if (!data.enabled) {
         // disableKillCount is a privacy toggle, not a branding option, so
         // honor it even when customize itself is not enabled.
@@ -28,6 +32,11 @@ export function CustomizeProvider(props: {
         return;
       }
       setConfig(data);
+
+      if (data.pageTitle) {
+        document.title = data.pageTitle;
+        titleOverridden = true;
+      }
 
       // Apply CSS variable overrides to :root
       if (data.cssOverrides) {
@@ -45,11 +54,16 @@ export function CustomizeProvider(props: {
   });
 
   onCleanup(() => {
+    mounted = false;
     const style = document.documentElement.style;
     for (const prop of appliedProps) {
       style.removeProperty(prop);
     }
     appliedProps = [];
+    if (titleOverridden) {
+      document.title = originalTitle;
+      titleOverridden = false;
+    }
   });
 
   return (

@@ -108,6 +108,9 @@ The configuration file is called `setting.json`. All settings can also be set vi
   },
   "streaming": {
     "enabled": true
+  },
+  "cors": {
+    "allowedOrigins": []
   }
 }
 ```
@@ -219,6 +222,22 @@ Live mission data can be streamed to the server via WebSocket.
 | `streaming.enabled` | `OCAP_STREAMING_ENABLED` | Enable the WebSocket streaming endpoint | `false` |
 | `streaming.pingInterval` | `OCAP_STREAMING_PINGINTERVAL` | Interval between WebSocket keepalive pings | `30s` |
 | `streaming.pingTimeout` | `OCAP_STREAMING_PINGTIMEOUT` | Timeout waiting for pong response | `10s` |
+
+### CORS
+
+All responses include CORS headers so external services and web apps can fetch from the API.
+
+| Setting | Env Var | Description | Default |
+|---------|---------|-------------|---------|
+| `cors.allowedOrigins` | `OCAP_CORS_ALLOWEDORIGINS` | Origins allowed to make cross-origin requests. Empty list permits all origins (`*`). Comma-separated in env var. | `[]` (all origins) |
+
+When `allowedOrigins` is empty the server responds with `Access-Control-Allow-Origin: *`, which is appropriate for public read APIs. Restrict to specific origins if you want to limit which external sites can call admin endpoints:
+
+```json
+"cors": {
+  "allowedOrigins": ["https://admin.example.com", "https://replay.example.com"]
+}
+```
 
 ## Large Recording Support
 

@@ -3,13 +3,13 @@ package server
 import (
 	"bufio"
 	"bytes"
-	"errors"
 	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log/slog"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,8 +59,8 @@ type Handler struct {
 	repoAmmo          *RepoAmmo
 	setting           Setting
 	jwt               *JWTManager
-	conversionTrigger ConversionTrigger  // optional, nil if conversion disabled
-	staticFS          fs.FS              // optional, nil disables static file serving
+	conversionTrigger ConversionTrigger   // optional, nil if conversion disabled
+	staticFS          fs.FS               // optional, nil disables static file serving
 	maptoolMgr        *maptool.JobManager // optional, nil if maptool disabled
 	maptoolCfg        *maptoolConfig      // optional, nil if maptool disabled
 	openIDVerifier    openIDVerifier
@@ -137,24 +137,30 @@ func NewHandler(
 	prefixURL := strings.TrimRight(hdlr.setting.PrefixURL, "/")
 	g := fuego.Group(s, prefixURL)
 
+	fuego.Use(g, newCORSMiddleware(hdlr.setting.CORS.AllowedOrigins))
+
 	bearerAuth := openapi3.SecurityRequirement{"bearerAuth": {}}
 
 	// Health & info
 	fuego.Get(g, "/api/healthcheck", hdlr.GetHealthcheck, fuego.OptionTags("Health"))
 	fuego.Get(g, "/api/version", hdlr.GetVersion, fuego.OptionTags("Health"))
 
-	// Recordings (public read)
-	fuego.Get(g, "/api/v1/operations", hdlr.GetOperations, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/operations/{id}", hdlr.GetOperation, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/operations/{id}/marker-blacklist", hdlr.GetMarkerBlacklist, fuego.OptionTags("Recordings"))
+	// Public recording endpoints (own auth or needed before login)
 	fuego.PostStd(g, "/api/v1/operations/add", hdlr.StoreOperation, fuego.OptionTags("Recordings"))
-	fuego.Get(g, "/api/v1/worlds", hdlr.GetWorlds, fuego.OptionTags("Recordings"))
 	fuego.Get(g, "/api/v1/customize", hdlr.GetCustomize, fuego.OptionTags("Recordings"))
 	fuego.GetStd(g, "/api/v1/stream", hdlr.HandleStream, fuego.OptionTags("Recordings"))
 
+	// Viewer-gated endpoints (require valid JWT in non-public modes)
+	viewer := fuego.Group(g, "")
+	fuego.Use(viewer, hdlr.requireViewer)
+	fuego.Get(viewer, "/api/v1/operations", hdlr.GetOperations, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}", hdlr.GetOperation, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/operations/{id}/marker-blacklist", hdlr.GetMarkerBlacklist, fuego.OptionTags("Recordings"))
+	fuego.Get(viewer, "/api/v1/worlds", hdlr.GetWorlds, fuego.OptionTags("Recordings"))
+
 	// Assets (static file serving)
 	cacheMiddleware := hdlr.cacheControl(CacheDuration)
-	fuego.GetStd(g, "/data/{path...}", hdlr.GetData, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
+	fuego.GetStd(viewer, "/data/{path...}", hdlr.GetData, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/markers/{name}/{color}", hdlr.GetMarker, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/markers/magicons/{name}", hdlr.GetAmmo, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 	fuego.GetStd(g, "/images/maps/fonts/{fontstack}/{range}", hdlr.GetFont, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
@@ -162,8 +168,10 @@ func NewHandler(
 	fuego.GetStd(g, "/images/maps/{path...}", hdlr.GetMapTile, fuego.OptionTags("Assets"), fuego.OptionMiddleware(cacheMiddleware))
 
 	// Auth
+	fuego.Get(g, "/api/v1/auth/config", hdlr.GetAuthConfig, fuego.OptionTags("Auth"))
 	fuego.GetStd(g, "/api/v1/auth/steam", hdlr.SteamLogin, fuego.OptionTags("Auth"))
 	fuego.GetStd(g, "/api/v1/auth/steam/callback", hdlr.SteamCallback, fuego.OptionTags("Auth"))
+	fuego.PostStd(g, "/api/v1/auth/password", hdlr.PasswordLogin, fuego.OptionTags("Auth"))
 	fuego.Get(g, "/api/v1/auth/me", hdlr.GetMe, fuego.OptionTags("Auth"))
 	fuego.Post(g, "/api/v1/auth/logout", hdlr.Logout, fuego.OptionTags("Auth"), fuego.OptionSecurity(bearerAuth))
 
@@ -175,6 +183,10 @@ func NewHandler(
 	fuego.Post(admin, "/api/v1/operations/{id}/retry", hdlr.RetryConversion, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Put(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.AddMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Delete(admin, "/api/v1/operations/{id}/marker-blacklist/{playerId}", hdlr.RemoveMarkerBlacklist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/admin-config", hdlr.GetAdminAuthConfig, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Get(admin, "/api/v1/auth/allowlist", hdlr.GetAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Put(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.AddToAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	fuego.Delete(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.RemoveFromAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 
 	// MapTool (require admin JWT; SSE endpoint handles its own auth via query param)
 	if hdlr.maptoolMgr != nil {
@@ -199,6 +211,41 @@ func NewHandler(
 	}
 }
 
+// newCORSMiddleware returns a CORS middleware. When allowedOrigins is empty,
+// all origins are permitted via the wildcard (*). When specific origins are
+// listed, Vary: Origin is always set (so caches key on it) and the
+// Allow-Origin header is only set for matching origins.
+func newCORSMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	originSet := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		originSet[o] = struct{}{}
+	}
+	wildcard := len(allowedOrigins) == 0
+
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if wildcard {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Add("Vary", "Origin")
+				if origin := r.Header.Get("Origin"); origin != "" {
+					if _, ok := originSet[origin]; ok {
+						w.Header().Set("Access-Control-Allow-Origin", origin)
+					}
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+			if r.Method == http.MethodOptions && r.Header.Get("Origin") != "" {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func (*Handler) cacheControl(duration time.Duration) func(http.Handler) http.Handler {
 	var header string
 	if duration < time.Second {
@@ -214,7 +261,7 @@ func (*Handler) cacheControl(duration time.Duration) func(http.Handler) http.Han
 	}
 }
 
-func (h *Handler) GetOperations(c ContextNoBody) ([]Operation, error) {
+func (h *Handler) GetOperations(c fuego.Context[any, Filter]) ([]Operation, error) {
 	ctx := c.Context()
 	filter := Filter{
 		Name:  c.QueryParam("name"),

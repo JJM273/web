@@ -10,7 +10,6 @@ import type {
   MarkerHandle,
   EntityMarkerOpts,
   EntityMarkerState,
-  CrewInfo,
   BriefingMarkerHandle,
   BriefingMarkerDef,
   BriefingMarkerState,
@@ -1230,7 +1229,7 @@ export class LeafletRenderer implements MapRenderer {
 
   // ==================== Settings ====================
 
-  setSmoothingEnabled(_enabled: boolean, _speed?: number): void {
+  setSmoothingEnabled(_enabled: boolean, _frameIntervalSec?: number): void {
     // no-op: CSS marker transitions removed
   }
 

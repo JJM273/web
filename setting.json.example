@@ -15,6 +15,7 @@
 		"enabled": false,
 		"headerSubtitle": "",
 		"headerTitle": "",
+		"pageTitle": "",
 		"websiteLogo": "",
 		"websiteLogoSize": "32px",
 		"websiteURL": "",
@@ -33,14 +34,19 @@
 		"pingTimeout": "10s"
 	},
 	"auth": {
+		"mode": "public",
 		"sessionTTL": "24h",
 		"adminSteamIds": [],
-		"steamApiKey": ""
+		"steamApiKey": "",
+		"password": ""
 	},
 	"httpServer": {
 		"readTimeout": "120s",
 		"readHeaderTimeout": "30s",
 		"writeTimeout": "120s",
 		"idleTimeout": "120s"
+	},
+	"cors": {
+		"allowedOrigins": []
 	}
 }

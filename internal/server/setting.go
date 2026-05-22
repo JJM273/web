@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ type Setting struct {
 	Streaming  Streaming  `json:"streaming" yaml:"streaming"`
 	Auth       Auth       `json:"auth" yaml:"auth"`
 	HttpServer HttpServer `json:"httpServer" yaml:"httpServer"`
+	CORS       CORSConfig `json:"cors" yaml:"cors"`
 }
 
 type Conversion struct {
@@ -46,19 +48,26 @@ type Customize struct {
 	DisableKillCount bool              `json:"disableKillCount" yaml:"disableKillCount"`
 	HeaderTitle      string            `json:"headerTitle" yaml:"headerTitle"`
 	HeaderSubtitle   string            `json:"headerSubtitle" yaml:"headerSubtitle"`
+	PageTitle        string            `json:"pageTitle" yaml:"pageTitle"`
 	CSSOverrides     map[string]string `json:"cssOverrides,omitempty" yaml:"cssOverrides"`
 }
 
 type Auth struct {
+	Mode          string        `json:"mode" yaml:"mode"`
 	SessionTTL    time.Duration `json:"sessionTTL" yaml:"sessionTTL"`
 	AdminSteamIDs []string      `json:"adminSteamIds" yaml:"adminSteamIds"`
 	SteamAPIKey   string        `json:"steamApiKey" yaml:"steamApiKey"`
+	Password      string        `json:"password" yaml:"password"`
 }
 
 type Streaming struct {
 	Enabled      bool          `json:"enabled" yaml:"enabled"`
 	PingInterval time.Duration `json:"pingInterval" yaml:"pingInterval"`
 	PingTimeout  time.Duration `json:"pingTimeout" yaml:"pingTimeout"`
+}
+
+type CORSConfig struct {
+	AllowedOrigins []string `json:"allowedOrigins" yaml:"allowedOrigins"`
 }
 
 type HttpServer struct {
@@ -100,6 +109,7 @@ func NewSetting() (setting Setting, err error) {
 	viper.SetDefault("customize.disableKillCount", false)
 	viper.SetDefault("customize.headerTitle", "")
 	viper.SetDefault("customize.headerSubtitle", "")
+	viper.SetDefault("customize.pageTitle", "")
 	viper.SetDefault("conversion.enabled", false)
 	viper.SetDefault("conversion.interval", "5m")
 	viper.SetDefault("conversion.batchSize", 1)
@@ -112,7 +122,10 @@ func NewSetting() (setting Setting, err error) {
 	viper.SetDefault("auth.sessionTTL", "24h")
 	viper.SetDefault("auth.adminSteamIds", []string{})
 	viper.SetDefault("auth.steamApiKey", "")
+	viper.SetDefault("auth.mode", "public")
+	viper.SetDefault("auth.password", "")
 
+	viper.SetDefault("cors.allowedOrigins", []string{})
 	viper.SetDefault("httpServer.readTimeout", "120s")
 	viper.SetDefault("httpServer.readHeaderTimeout", "30s")
 	viper.SetDefault("httpServer.writeTimeout", "120s")
@@ -129,9 +142,9 @@ func NewSetting() (setting Setting, err error) {
 		return
 	}
 
-	// Viper doesn't split comma-separated env var strings into slices,
-	// so a value like "id1,id2" ends up as ["id1,id2"]. Expand it.
-	setting.Auth.AdminSteamIDs = splitCSV(setting.Auth.AdminSteamIDs)
+	if err = validateAuthConfig(setting.Auth); err != nil {
+		return
+	}
 
 	// Viper can't unmarshal a JSON string env var into map[string]string,
 	// so parse OCAP_CUSTOMIZE_CSSOVERRIDES manually if set. Env var takes
@@ -161,16 +174,16 @@ func NewSetting() (setting Setting, err error) {
 	return
 }
 
-// splitCSV expands a []string where one element may contain comma-separated
-// values (from an env var) into individual trimmed entries.
-func splitCSV(in []string) []string {
-	var out []string
-	for _, s := range in {
-		for _, part := range strings.Split(s, ",") {
-			if v := strings.TrimSpace(part); v != "" {
-				out = append(out, v)
-			}
+func validateAuthConfig(auth Auth) error {
+	validModes := []string{"public", "password", "steam", "steamAllowlist"}
+	if !slices.Contains(validModes, auth.Mode) {
+		return fmt.Errorf("auth.mode %q is not valid, must be one of: %s", auth.Mode, strings.Join(validModes, ", "))
+	}
+	switch auth.Mode {
+	case "password":
+		if auth.Password == "" {
+			return fmt.Errorf("auth.mode %q requires auth.password to be set", auth.Mode)
 		}
 	}
-	return out
+	return nil
 }

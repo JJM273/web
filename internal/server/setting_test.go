@@ -500,30 +500,6 @@ func TestSetting_HttpServer(t *testing.T) {
 	assert.Equal(t, 140*time.Second, setting.HttpServer.IdleTimeout)
 }
 
-func TestSplitCSV(t *testing.T) {
-	tests := []struct {
-		name string
-		in   []string
-		want []string
-	}{
-		{"nil input", nil, nil},
-		{"empty slice", []string{}, nil},
-		{"single value", []string{"abc"}, []string{"abc"}},
-		{"already split", []string{"a", "b"}, []string{"a", "b"}},
-		{"comma-separated single element", []string{"a,b,c"}, []string{"a", "b", "c"}},
-		{"mixed", []string{"a,b", "c"}, []string{"a", "b", "c"}},
-		{"whitespace trimmed", []string{" a , b , c "}, []string{"a", "b", "c"}},
-		{"empty parts skipped", []string{"a,,b,"}, []string{"a", "b"}},
-		{"all empty", []string{",,"}, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := splitCSV(tt.in)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestNewSetting_NoConfigFile(t *testing.T) {
 	viper.Reset()
 	// Use a directory with no config file
@@ -531,4 +507,89 @@ func TestNewSetting_NoConfigFile(t *testing.T) {
 
 	_, err := NewSetting()
 	assert.Error(t, err)
+}
+
+func TestValidateAuthConfig(t *testing.T) {
+	t.Run("valid modes accepted", func(t *testing.T) {
+		for _, mode := range []string{"public", "steam", "steamAllowlist"} {
+			err := validateAuthConfig(Auth{Mode: mode})
+			assert.NoError(t, err, "mode %q should be valid", mode)
+		}
+		err := validateAuthConfig(Auth{Mode: "password", Password: "secret"})
+		assert.NoError(t, err)
+	})
+
+	t.Run("invalid mode returns error", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "bogus"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "bogus")
+		assert.Contains(t, err.Error(), "not valid")
+	})
+
+	t.Run("password mode without password", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "password"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "auth.password")
+	})
+
+	t.Run("removed modes are rejected", func(t *testing.T) {
+		err := validateAuthConfig(Auth{Mode: "steamGroup"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+
+		err = validateAuthConfig(Auth{Mode: "squadXml"})
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "not valid")
+	})
+}
+
+func TestNewSetting_AuthModeDefault(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{"secret": "test-secret-value"}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "public", setting.Auth.Mode)
+}
+
+func TestNewSetting_AuthModeInvalid(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "invalid"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	_, err = NewSetting()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid")
+}
+
+func TestNewSetting_AuthPasswordMode(t *testing.T) {
+	defer viper.Reset()
+
+	dir := t.TempDir()
+	err := os.WriteFile(filepath.Join(dir, "setting.json"), []byte(`{
+		"secret": "test-secret-value",
+		"auth": {"mode": "password", "password": "hunter2"}
+	}`), 0644)
+	require.NoError(t, err)
+
+	viper.Reset()
+	viper.AddConfigPath(dir)
+	setting, err := NewSetting()
+	require.NoError(t, err)
+
+	assert.Equal(t, "password", setting.Auth.Mode)
+	assert.Equal(t, "hunter2", setting.Auth.Password)
 }

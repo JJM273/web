@@ -21,16 +21,13 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "convert" {
-		if err := runConvert(os.Args[2:]); err != nil {
-			log.Fatalf("convert: %v", err)
+	os.Exit(runRoot(os.Args[1:], os.Stdout, os.Stderr, func() int {
+		if err := app(); err != nil {
+			log.Printf("fatal: %v", err)
+			return 1
 		}
-		return
-	}
-
-	if err := app(); err != nil {
-		log.Fatalf("fatal: %v", err)
-	}
+		return 0
+	}))
 }
 
 func app() error {

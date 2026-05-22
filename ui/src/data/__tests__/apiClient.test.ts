@@ -161,7 +161,7 @@ describe("ApiClient", () => {
       const client = new ApiClient("/aar/");
       const result = await client.getRecordingData("my_mission");
 
-      expect(fetch).toHaveBeenCalledWith("/aar/data/my_mission.json.gz");
+      expect(fetch).toHaveBeenCalledWith("/aar/data/my_mission.json.gz", expect.anything());
       expect(new Uint8Array(result)).toEqual(new Uint8Array([1, 2, 3, 4]));
     });
 
@@ -476,6 +476,7 @@ describe("ApiClient", () => {
 
       expect(fetch).toHaveBeenCalledWith(
         "/aar/data/op-123/manifest.pb",
+        expect.anything(),
       );
       expect(new Uint8Array(result)).toEqual(new Uint8Array([10, 20, 30]));
     });
@@ -491,6 +492,7 @@ describe("ApiClient", () => {
 
       expect(fetch).toHaveBeenCalledWith(
         "/aar/data/op-123/chunks/0005.pb",
+        expect.anything(),
       );
       expect(new Uint8Array(result)).toEqual(new Uint8Array([0xaa, 0xbb]));
     });
@@ -1105,6 +1107,384 @@ describe("ApiClient", () => {
       lastXhr.responseText = JSON.stringify({ id: "j1", worldName: "Altis", status: "pending" });
       lastXhr.onload!();
       await promise;
+    });
+  });
+
+  // ─── getAuthConfig ───
+
+  describe("getAuthConfig", () => {
+    it("returns auth mode from server", async () => {
+      mockFetchJson({ mode: "password" });
+
+      const client = new ApiClient("/aar/");
+      const result = await client.getAuthConfig();
+
+      expect(fetch).toHaveBeenCalledWith("/aar/api/v1/auth/config", {
+        cache: "no-cache",
+        headers: {},
+      });
+      expect(result).toEqual({ mode: "password" });
+    });
+
+    it("defaults to public mode on error", async () => {
+      mockFetchError(500, "Internal Server Error");
+
+      const client = new ApiClient("/aar/");
+      const result = await client.getAuthConfig();
+
+      expect(result).toEqual({ mode: "public" });
+    });
+  });
+
+  // ─── passwordLogin ───
+
+  describe("passwordLogin", () => {
+    it("stores token on success", async () => {
+      mockFetchJson({ token: "pw-jwt-token" });
+
+      const client = new ApiClient("/aar/");
+      const token = await client.passwordLogin("secret123");
+
+      expect(fetch).toHaveBeenCalledWith("/aar/api/v1/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "secret123" }),
+      });
+      expect(token).toBe("pw-jwt-token");
+      expect(getAuthToken()).toBe("pw-jwt-token");
+    });
+
+    it("throws 'Invalid password' on 401", async () => {
+      mockFetchError(401, "Unauthorized");
+
+      const client = new ApiClient("/aar/");
+      await expect(client.passwordLogin("wrong")).rejects.toThrow("Invalid password");
+    });
+
+    it("throws 'Login failed' on other errors", async () => {
+      mockFetchError(500, "Internal Server Error");
+
+      const client = new ApiClient("/aar/");
+      await expect(client.passwordLogin("test")).rejects.toThrow("Login failed");
+    });
+  });
+
+  // ─── Auth headers on viewer-gated endpoints ───
+
+  describe("auth headers on viewer-gated endpoints", () => {
+    it("includes auth header in fetchJson calls when token is set", async () => {
+      setAuthToken("viewer-jwt");
+      mockFetchJson([]);
+
+      const client = new ApiClient("/aar/");
+      await client.getRecordings();
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/aar/api/v1/operations",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer viewer-jwt" },
+        }),
+      );
+    });
+
+    it("includes auth header in fetchBuffer calls when token is set", async () => {
+      setAuthToken("viewer-jwt");
+      mockFetchBuffer(new ArrayBuffer(0));
+
+      const client = new ApiClient("/aar/");
+      await client.getRecordingData("test");
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/aar/data/test.json.gz",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer viewer-jwt" },
+        }),
+      );
+    });
+
+    it("sends empty headers when no token is stored", async () => {
+      mockFetchJson([]);
+
+      const client = new ApiClient("/aar/");
+      await client.getRecordings();
+
+      expect(fetch).toHaveBeenCalledWith(
+        "/aar/api/v1/operations",
+        expect.objectContaining({
+          headers: {},
+        }),
+      );
+    });
+
+    it("saves return path and redirects on 401 from fetchJson", async () => {
+      mockFetchError(401, "Unauthorized");
+
+      const hrefSetter = vi.fn();
+      Object.defineProperty(window, "location", {
+        value: {
+          ...window.location,
+          pathname: "/recording/42/test",
+          search: "",
+          get href() { return "http://localhost/recording/42/test"; },
+          set href(v: string) { hrefSetter(v); },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const client = new ApiClient("/aar/");
+      await expect(client.getRecordings()).rejects.toMatchObject({ status: 401 });
+
+      expect(sessionStorage.getItem("ocap_return_to")).toBe("/recording/42/test");
+      expect(hrefSetter).toHaveBeenCalledWith("/");
+    });
+
+    it("saves return path and redirects on 401 from fetchBuffer", async () => {
+      mockFetchError(401, "Unauthorized");
+
+      const hrefSetter = vi.fn();
+      Object.defineProperty(window, "location", {
+        value: {
+          ...window.location,
+          pathname: "/recording/7/mission",
+          search: "?t=100",
+          get href() { return "http://localhost/recording/7/mission?t=100"; },
+          set href(v: string) { hrefSetter(v); },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const client = new ApiClient("/aar/");
+      await expect(client.getRecordingData("test")).rejects.toMatchObject({ status: 401 });
+
+      expect(sessionStorage.getItem("ocap_return_to")).toBe("/recording/7/mission?t=100");
+      expect(hrefSetter).toHaveBeenCalledWith("/");
+    });
+
+    it("does NOT redirect on 401 when already at the root path", async () => {
+      sessionStorage.removeItem("ocap_return_to");
+      mockFetchError(401, "Unauthorized");
+
+      const hrefSetter = vi.fn();
+      Object.defineProperty(window, "location", {
+        value: {
+          ...window.location,
+          pathname: "/",
+          search: "",
+          get href() { return "http://localhost/"; },
+          set href(v: string) { hrefSetter(v); },
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const client = new ApiClient();
+      await expect(client.getRecordings()).rejects.toMatchObject({ status: 401 });
+
+      expect(hrefSetter).not.toHaveBeenCalled();
+      expect(sessionStorage.getItem("ocap_return_to")).toBeNull();
+    });
+  });
+
+  // ─── Error body parsing (apiErrorFromResponse) ───
+
+  describe("error body parsing", () => {
+    function mockFetchErrorWithBody(status: number, statusText: string, bodyText: string): void {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status,
+          statusText,
+          text: () => Promise.resolve(bodyText),
+          json: () => Promise.reject(new Error("use text")),
+        }),
+      );
+    }
+
+    it("surfaces JSON `detail` field on ApiError", async () => {
+      mockFetchErrorWithBody(400, "Bad Request", JSON.stringify({ detail: "steamId is required" }));
+      const client = new ApiClient();
+      try {
+        await client.addToAllowlist("76561198099999999");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect(err).toBeInstanceOf(ApiError);
+        const apiErr = err as ApiError;
+        expect(apiErr.status).toBe(400);
+        expect(apiErr.detail).toBe("steamId is required");
+        expect(apiErr.message).toContain("steamId is required");
+      }
+    });
+
+    it("surfaces JSON `error` field on ApiError", async () => {
+      mockFetchErrorWithBody(500, "Internal Server Error", JSON.stringify({ error: "database is locked" }));
+      const client = new ApiClient();
+      try {
+        await client.removeFromAllowlist("76561198000000000");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as ApiError).detail).toBe("database is locked");
+      }
+    });
+
+    it("surfaces JSON `message` field on ApiError", async () => {
+      mockFetchErrorWithBody(403, "Forbidden", JSON.stringify({ message: "admin role required" }));
+      const client = new ApiClient();
+      try {
+        await client.deleteRecording("42");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as ApiError).detail).toBe("admin role required");
+      }
+    });
+
+    it("falls back to raw text when JSON has no recognised field", async () => {
+      mockFetchErrorWithBody(400, "Bad Request", JSON.stringify({ otherField: "x" }));
+      const client = new ApiClient();
+      try {
+        await client.addToAllowlist("76561198099999999");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as ApiError).detail).toBe('{"otherField":"x"}');
+      }
+    });
+
+    it("uses raw text body when not JSON", async () => {
+      mockFetchErrorWithBody(502, "Bad Gateway", "upstream timed out");
+      const client = new ApiClient();
+      try {
+        await client.addToAllowlist("76561198099999999");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as ApiError).detail).toBe("upstream timed out");
+        expect((err as ApiError).message).toContain("upstream timed out");
+      }
+    });
+
+    it("omits detail when response has no body", async () => {
+      mockFetchErrorWithBody(500, "Internal Server Error", "");
+      const client = new ApiClient();
+      try {
+        await client.addToAllowlist("76561198099999999");
+        throw new Error("should have thrown");
+      } catch (err) {
+        expect((err as ApiError).detail).toBeUndefined();
+        expect((err as ApiError).message).toBe(
+          "PUT /api/v1/auth/allowlist/76561198099999999 failed: 500 Internal Server Error",
+        );
+      }
+    });
+
+    it("survives a body-read failure without crashing", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 500,
+          statusText: "Internal Server Error",
+          text: () => Promise.reject(new Error("body read failed")),
+          json: () => Promise.reject(new Error("body read failed")),
+        }),
+      );
+      const client = new ApiClient();
+      await expect(client.addToAllowlist("76561198099999999")).rejects.toMatchObject({
+        status: 500,
+        detail: undefined,
+      });
+    });
+  });
+
+  // ─── Admin / allowlist endpoints ───
+
+  describe("admin auth config", () => {
+    it("fetches admin config with auth header", async () => {
+      setAuthToken("admin-jwt");
+      mockFetchJson({
+        mode: "steamAllowlist",
+        adminSteamIds: ["76561198000000001"],
+        steamApiKeyConfigured: true,
+        sessionTtl: "24h",
+      });
+      const client = new ApiClient("/aar/");
+      const cfg = await client.getAdminAuthConfig();
+      expect(cfg.mode).toBe("steamAllowlist");
+      expect(cfg.adminSteamIds).toEqual(["76561198000000001"]);
+      expect(fetch).toHaveBeenCalledWith("/aar/api/v1/auth/admin-config", {
+        method: "GET",
+        cache: "no-cache",
+        headers: { Authorization: "Bearer admin-jwt" },
+      });
+    });
+
+    it("propagates 401 as ApiError without redirect", async () => {
+      setAuthToken("expired-jwt");
+      mockFetchError(401, "Unauthorized");
+      const client = new ApiClient();
+      await expect(client.getAdminAuthConfig()).rejects.toMatchObject({ status: 401 });
+    });
+  });
+
+  describe("allowlist endpoints", () => {
+    it("getAllowlist unwraps the steamIds field", async () => {
+      setAuthToken("admin-jwt");
+      mockFetchJson({ steamIds: ["76561198000000001", "76561198000000002"] });
+      const client = new ApiClient();
+      const ids = await client.getAllowlist();
+      expect(ids).toEqual(["76561198000000001", "76561198000000002"]);
+    });
+
+    it("addToAllowlist PUTs the Steam ID with auth header", async () => {
+      setAuthToken("admin-jwt");
+      mockFetchJson(null);
+      const client = new ApiClient("/aar/");
+      await client.addToAllowlist("76561198099999999");
+      expect(fetch).toHaveBeenCalledWith("/aar/api/v1/auth/allowlist/76561198099999999", {
+        method: "PUT",
+        headers: { Authorization: "Bearer admin-jwt" },
+      });
+    });
+
+    it("removeFromAllowlist DELETEs the Steam ID with auth header", async () => {
+      setAuthToken("admin-jwt");
+      mockFetchJson(null);
+      const client = new ApiClient("/aar/");
+      await client.removeFromAllowlist("76561198099999999");
+      expect(fetch).toHaveBeenCalledWith("/aar/api/v1/auth/allowlist/76561198099999999", {
+        method: "DELETE",
+        headers: { Authorization: "Bearer admin-jwt" },
+      });
+    });
+
+    it("addToAllowlist URL-encodes the Steam ID", async () => {
+      setAuthToken("admin-jwt");
+      mockFetchJson(null);
+      const client = new ApiClient();
+      await client.addToAllowlist("weird/id with spaces");
+      expect(fetch).toHaveBeenCalledWith(
+        "/api/v1/auth/allowlist/weird%2Fid%20with%20spaces",
+        expect.objectContaining({ method: "PUT" }),
+      );
+    });
+
+    it("surfaces server detail when addToAllowlist returns 400", async () => {
+      setAuthToken("admin-jwt");
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: false,
+          status: 400,
+          statusText: "Bad Request",
+          text: () => Promise.resolve(JSON.stringify({ detail: "invalid steamId" })),
+          json: () => Promise.reject(new Error("use text")),
+        }),
+      );
+      const client = new ApiClient();
+      await expect(client.addToAllowlist("not-a-steam-id")).rejects.toMatchObject({
+        status: 400,
+        detail: "invalid steamId",
+      });
     });
   });
 });

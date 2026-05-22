@@ -36,6 +36,7 @@ interface SideStats {
   alive: number;
   kills: number;
   deaths: number;
+  teamKills: number;
 }
 
 interface LeaderboardEntry {
@@ -44,6 +45,7 @@ interface LeaderboardEntry {
   kills: number;
   deaths: number;
   vehicleKills: number;
+  teamKills: number;
 }
 
 export function StatsTab(): JSX.Element {
@@ -81,7 +83,7 @@ export function StatsTab(): JSX.Element {
   const sideStats = createMemo((): SideStats[] => {
     const snaps = engine.entitySnapshots();
     const units = engine.entityManager.getUnits();
-    const { kills, deaths } = killDeathCounts();
+    const { kills, deaths, teamKills } = killDeathCounts();
     return SIDES.map((side) => {
       const sideUnits = units.filter((u) => u.side === side);
       const total = sideUnits.length;
@@ -92,13 +94,14 @@ export function StatsTab(): JSX.Element {
       }
       const sideKills = sideUnits.reduce((s, u) => s + (kills.get(u.id) ?? 0), 0);
       const sideDeaths = sideUnits.reduce((s, u) => s + (deaths.get(u.id) ?? 0), 0);
-      return { side, total, alive, kills: sideKills, deaths: sideDeaths };
+      const sideTeamKills = sideUnits.reduce((s, u) => s + (teamKills.get(u.id) ?? 0), 0);
+      return { side, total, alive, kills: sideKills, deaths: sideDeaths, teamKills: sideTeamKills };
     }).filter((s) => s.total > 0);
   });
 
   const leaderboard = createMemo((): LeaderboardEntry[] => {
     const units = engine.entityManager.getUnits();
-    const { kills, deaths, vehicleKills } = killDeathCounts();
+    const { kills, deaths, vehicleKills, teamKills } = killDeathCounts();
     return units
       .filter((u) => u.isPlayer && (
         (kills.get(u.id) ?? 0) > 0 ||
@@ -116,6 +119,7 @@ export function StatsTab(): JSX.Element {
         kills: kills.get(u.id) ?? 0,
         deaths: deaths.get(u.id) ?? 0,
         vehicleKills: vehicleKills.get(u.id) ?? 0,
+        teamKills: teamKills.get(u.id) ?? 0,
       }));
   });
 
@@ -178,6 +182,15 @@ export function StatsTab(): JSX.Element {
                           {stat.deaths}
                         </div>
                         <div class={styles.forceStatLabel}>{t("deaths_label")}</div>
+                      </div>
+                      <div class={styles.forceStatPill}>
+                        <div
+                          class={styles.forceStatNum}
+                          classList={{ [styles.forceStatNumTeamKills]: stat.teamKills > 0 }}
+                        >
+                          {stat.teamKills}
+                        </div>
+                        <div class={styles.forceStatLabel}>{t("team_kills_label")}</div>
                       </div>
                     </div>
                   </div>
@@ -321,6 +334,9 @@ export function StatsTab(): JSX.Element {
                 <span class={styles.leaderboardVehicleKills} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
                   VK
                 </span>
+                <span class={styles.leaderboardTeamKills} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
+                  {t("team_kills_label")}
+                </span>
                 <span class={styles.leaderboardDeaths} style={{ color: "var(--text-dimmer)", "font-size": "9px" }}>
                   D
                 </span>
@@ -340,6 +356,7 @@ export function StatsTab(): JSX.Element {
                     </span>
                     <span class={styles.leaderboardKills}>{entry.kills}</span>
                     <span class={styles.leaderboardVehicleKills}>{entry.vehicleKills}</span>
+                    <span class={styles.leaderboardTeamKills}>{entry.teamKills}</span>
                     <span class={styles.leaderboardDeaths}>{entry.deaths}</span>
                   </div>
                 )}

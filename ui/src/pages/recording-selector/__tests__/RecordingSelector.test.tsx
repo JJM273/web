@@ -266,6 +266,13 @@ describe("RecordingSelector", () => {
     const { findByTestId, queryByTestId } = renderPage();
     await findByTestId("recording-1");
 
+    const trigger = screen.getByTestId("map-filter-dropdown-trigger");
+    fireEvent.click(trigger);
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("map-filter-Stratis")).toBeDefined();
+    });
+
     const stratisButton = screen.getByTestId("map-filter-Stratis");
     fireEvent.click(stratisButton);
 
@@ -279,6 +286,14 @@ describe("RecordingSelector", () => {
   it("does not crash when rapidly toggling map filters", async () => {
     const { findByTestId, queryByTestId } = renderPage();
     await findByTestId("recording-1");
+
+    const trigger = screen.getByTestId("map-filter-dropdown-trigger");
+    fireEvent.click(trigger);
+
+    await vi.waitFor(() => {
+      expect(screen.getByTestId("map-filter-Altis")).toBeDefined();
+      expect(screen.getByTestId("map-filter-Stratis")).toBeDefined();
+    });
 
     const altisButton = screen.getByTestId("map-filter-Altis");
     const stratisButton = screen.getByTestId("map-filter-Stratis");
@@ -614,7 +629,7 @@ describe("RecordingSelector", () => {
 
     // 2 unique maps: Altis and Stratis
     expect(screen.getByText("2")).toBeDefined();
-    expect(screen.getByText("Maps")).toBeDefined();
+    expect(screen.getAllByText("Maps").length).toBeGreaterThan(0);
   });
 
   // ── Auth error toast ──
@@ -632,8 +647,9 @@ describe("RecordingSelector", () => {
 
     // Wait for toast to appear
     await vi.waitFor(() => {
-      expect(screen.getByTestId("auth-toast")).toBeDefined();
-      expect(screen.getByText(/Steam login failed/)).toBeDefined();
+      const toast = screen.getByTestId("auth-toast");
+      expect(toast).toBeDefined();
+      expect(within(toast).getByText(/Steam login failed/)).toBeDefined();
     });
 
     // Advance past the 5s auto-dismiss timeout
@@ -955,7 +971,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const logoutBtn = screen.getByTitle("Sign out");
+    const logoutBtn = await screen.findByTitle("Sign out");
     fireEvent.click(logoutBtn);
 
     await vi.waitFor(() => {
@@ -1073,7 +1089,7 @@ describe("RecordingSelector (Admin)", () => {
     await findByTestId("recording-1");
 
     // Click upload button
-    const uploadBtn = screen.getByTitle("Upload Recording");
+    const uploadBtn = await screen.findByTitle("Upload Recording");
     fireEvent.click(uploadBtn);
 
     // Upload dialog should appear
@@ -1115,7 +1131,7 @@ describe("RecordingSelector (Admin)", () => {
     await findByTestId("recording-1");
 
     // Open upload zone
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1134,7 +1150,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1152,7 +1168,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1170,7 +1186,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1189,7 +1205,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1221,7 +1237,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1243,7 +1259,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1276,7 +1292,7 @@ describe("RecordingSelector (Admin)", () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     await vi.waitFor(() => {
@@ -1321,11 +1337,78 @@ describe("RecordingSelector (Admin)", () => {
     });
   });
 
+  it("the admin shield button is present and clickable for admins", async () => {
+    const { findByTestId } = renderPage();
+    await findByTestId("recording-1");
+
+    const adminBtn = (await screen.findByTitle("Admin")) as HTMLButtonElement;
+    expect(adminBtn).toBeTruthy();
+    // Click should not throw and should fire the onClick handler.
+    fireEvent.click(adminBtn);
+  });
+
+  it("falls back gracefully when map-tool tools probe fails", async () => {
+    // Override default mock to make /maptool/tools fail.
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      const u = typeof url === "string" ? url : "";
+      if (u.includes("/api/v1/auth/me")) {
+        return Promise.resolve({
+          ok: true, status: 200, statusText: "OK",
+          json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "76561198012345678", steamName: "TestPlayer" }),
+        } as Response);
+      }
+      if (u.includes("/api/v1/maptool/tools")) {
+        return Promise.resolve({
+          ok: false, status: 500, statusText: "Internal Server Error",
+          text: () => Promise.resolve(""),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true, status: 200, statusText: "OK",
+        json: () => Promise.resolve([]),
+      } as Response);
+    });
+
+    const { findByTestId } = renderPage();
+    await findByTestId("recording-selector");
+    // No crash; map-manager globe button shouldn't be rendered.
+    expect(screen.queryByTitle(/Map (Manager|Tool)/i)).toBeNull();
+  });
+
+  it("clears recordings and worlds when the data load fails", async () => {
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      const u = typeof url === "string" ? url : "";
+      if (u.includes("/api/v1/auth/me")) {
+        return Promise.resolve({
+          ok: true, status: 200, statusText: "OK",
+          json: () => Promise.resolve({ authenticated: false }),
+        } as Response);
+      }
+      if (u.includes("/api/v1/operations")) {
+        return Promise.resolve({
+          ok: false, status: 500, statusText: "Internal Server Error",
+          text: () => Promise.resolve(""),
+        } as Response);
+      }
+      return Promise.resolve({
+        ok: true, status: 200, statusText: "OK",
+        json: () => Promise.resolve([]),
+      } as Response);
+    });
+
+    const { findByTestId } = renderPage();
+    await findByTestId("recording-selector");
+    // No row appears; the catch handler cleared the lists.
+    await vi.waitFor(() => {
+      expect(screen.queryByTestId("recording-1")).toBeNull();
+    });
+  });
+
   it("footer hint updates based on form state", async () => {
     const { findByTestId } = renderPage();
     await findByTestId("recording-1");
 
-    const uploadBtn = screen.getByTitle("Upload Recording") as HTMLButtonElement;
+    const uploadBtn = await screen.findByTitle("Upload Recording") as HTMLButtonElement;
     fireEvent.click(uploadBtn);
 
     // No file: "Select a file to upload"

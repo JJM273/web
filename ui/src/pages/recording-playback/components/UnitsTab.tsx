@@ -71,7 +71,7 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
 
   const isAlive = (unitId: number): boolean => {
     const snap = engine.entitySnapshots().get(unitId);
-    return snap ? !!snap.alive : true;
+    return snap ? !!snap.alive : false;
   };
 
   // Frame-aware kill counts

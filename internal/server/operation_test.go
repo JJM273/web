@@ -438,7 +438,7 @@ func TestMigrationRerun(t *testing.T) {
 	var version int
 	err = repo2.db.QueryRow("SELECT db FROM version ORDER BY db DESC LIMIT 1").Scan(&version)
 	assert.NoError(t, err)
-	assert.Equal(t, 11, version)
+	assert.Equal(t, 12, version)
 }
 
 func TestMigrationV10NormalizeWorldName(t *testing.T) {
@@ -545,7 +545,7 @@ func TestMigrationV11DecodeFilenames(t *testing.T) {
 	// Version recorded.
 	var version int
 	require.NoError(t, repo2.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))
-	assert.Equal(t, 11, version)
+	assert.Equal(t, 12, version)
 }
 
 func TestDecodeFilename(t *testing.T) {
@@ -850,7 +850,7 @@ func TestMigrationV11_DBCollisionSkipped(t *testing.T) {
 	// Version still bumped.
 	var version int
 	require.NoError(t, repo2.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))
-	assert.Equal(t, 11, version)
+	assert.Equal(t, 12, version)
 }
 
 func TestMigrationV11_FilesystemCollisionSkipped(t *testing.T) {
