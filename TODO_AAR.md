@@ -4,9 +4,9 @@ expand the data summarizationa and exploration of OCAP web app to facilitate bet
 ### TODO for initial release
     - [ ] BUG summary on recording select page is missing in dev
     - [ ] add per side AAR summary to recording select page summary
-    - [ ] classify AI groups by vehicle, aircraft, infantry based on weapon used
 
 ### Roadmap for future features
+    - [ ] classify AI groups by vehicle, aircraft, infantry based on weapon used
     - [ ] feature to select timefame + geofence to specify multiple separate actions in a single mission
     - [ ] feature for generating "what happened" part of AAR, should work at group and command level, group level=movement of individuals, command level=movement of groups
         e.x. Command level: Alpha 1-2 (8infantry) moved NE, @t+2min engaged 10 enemy infantry at grid 123456, 2KIA, 10EKIA, hold at that position. @t+10min engaged by enemy APC, Tank, 8 infantry, 5KIA, APC destroyed, 7EKIA.
