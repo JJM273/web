@@ -45,6 +45,36 @@ function vehicleDef(overrides: Partial<EntityDef> = {}): EntityDef {
   };
 }
 
+/** Builds an EntityState array for a vehicle.
+ *  Every frame has empty crew except the ones specified in crewFrames. */
+function makeVehiclePositions(
+  length: number,
+  crewFrames: { relFrame: number; crewIds: number[] }[] = [],
+): EntityState[] {
+  const positions: EntityState[] = Array.from(
+    { length },
+    () => ({
+      position: [0, 0] as [number, number],
+      direction: 0,
+      alive: 1 as AliveState,
+      crewIds: [],
+    }),
+  );
+  for (const { relFrame, crewIds } of crewFrames) {
+    positions[relFrame] = { ...positions[relFrame], crewIds };
+  }
+  return positions;
+}
+
+/** Builds a dense alive-positions array for a unit. */
+function makeUnitPositions(length: number): EntityState[] {
+  return Array.from({ length }, () => ({
+    position: [0, 0] as [number, number],
+    direction: 0,
+    alive: 1 as AliveState,
+  }));
+}
+
 // ---------------------------------------------------------------------------
 // GameEvent (base class)
 // ---------------------------------------------------------------------------
@@ -636,39 +666,188 @@ describe("EventManager", () => {
     });
   });
 
-  describe("processVehicleOwnership – initial-side suppression window", () => {
-    /** Builds an EntityState array for a vehicle.
-     *  Every frame has empty crew except the ones specified in crewFrames. */
-    function makeVehiclePositions(
-      length: number,
-      crewFrames: { relFrame: number; crewIds: number[] }[] = [],
-    ): EntityState[] {
-      const positions: EntityState[] = Array.from(
-        { length },
-        () => ({
-          position: [0, 0] as [number, number],
-          direction: 0,
-          alive: 1 as AliveState,
-          crewIds: [],
+  describe("getEquipmentLosses", () => {
+    let entityMgr: EntityManager;
+
+    beforeEach(() => {
+      entityMgr = new EntityManager();
+    });
+
+    it("returns empty map when no entities or events", () => {
+      mgr.resolveReferences(entityMgr);
+      mgr.processVehicleOwnership(entityMgr, 1000);
+      expect(mgr.getEquipmentLosses(9999).size).toBe(0);
+    });
+
+    it("counts destroyed and lost_combat for a combat vehicle kill", () => {
+      entityMgr.addEntity(
+        vehicleDef({ id: 10, side: "EAST", type: "car", startFrame: 0, endFrame: 100, positions: makeVehiclePositions(101) }),
+      );
+      entityMgr.addEntity(
+        unitDef({ id: 1, side: "WEST", startFrame: 0, endFrame: 100, positions: makeUnitPositions(101) }),
+      );
+      mgr.addEvent(new HitKilledEvent(50, "killed", 1, 10, 1, 200, "RPG-7"));
+
+      mgr.resolveReferences(entityMgr);
+      mgr.processVehicleOwnership(entityMgr, 1000);
+
+      const losses = mgr.getEquipmentLosses(9999);
+      expect(losses.get("WEST")?.destroyed.get("car") ?? 0).toBe(1);
+      expect(losses.get("EAST")?.lost_combat.get("car") ?? 0).toBe(1);
+    });
+
+    it("respects the frame cutoff", () => {
+      entityMgr.addEntity(
+        vehicleDef({ id: 10, side: "EAST", type: "car", startFrame: 0, endFrame: 100, positions: makeVehiclePositions(101) }),
+      );
+      entityMgr.addEntity(
+        unitDef({ id: 1, side: "WEST", startFrame: 0, endFrame: 100, positions: makeUnitPositions(101) }),
+      );
+      mgr.addEvent(new HitKilledEvent(50, "killed", 1, 10, 1, 200, "RPG-7"));
+
+      mgr.resolveReferences(entityMgr);
+      mgr.processVehicleOwnership(entityMgr, 1000);
+
+      const before = mgr.getEquipmentLosses(49);
+      expect(before.get("WEST")?.destroyed.get("car") ?? 0).toBe(0);
+      expect(before.get("EAST")?.lost_combat.get("car") ?? 0).toBe(0);
+
+      const at = mgr.getEquipmentLosses(50);
+      expect(at.get("WEST")?.destroyed.get("car") ?? 0).toBe(1);
+      expect(at.get("EAST")?.lost_combat.get("car") ?? 0).toBe(1);
+    });
+
+    it("counts captured and lost_captured when boarding is outside the 60s window", () => {
+      // captureDelayMs=1000, crew boards at relFrame 65 → 65s → outside 60s window → capture fires
+      entityMgr.addEntity(
+        vehicleDef({
+          id: 10, side: "CIV", type: "car", startFrame: 0, endFrame: 199,
+          positions: makeVehiclePositions(200, [{ relFrame: 65, crewIds: [1] }]),
         }),
       );
-      for (const { relFrame, crewIds } of crewFrames) {
-        positions[relFrame] = { ...positions[relFrame], crewIds };
-      }
-      return positions;
-    }
+      entityMgr.addEntity(
+        unitDef({ id: 1, side: "WEST", startFrame: 0, endFrame: 199, positions: makeUnitPositions(200) }),
+      );
 
-    /** Builds a dense alive-positions array for a unit. */
-    function makeUnitPositions(
-      length: number,
-    ): EntityState[] {
-      return Array.from({ length }, () => ({
-        position: [0, 0] as [number, number],
-        direction: 0,
-        alive: 1 as AliveState,
-      }));
-    }
+      mgr.resolveReferences(entityMgr);
+      mgr.processVehicleOwnership(entityMgr, 1000);
 
+      const losses = mgr.getEquipmentLosses(9999);
+      expect(losses.get("CIV")?.lost_captured.get("car") ?? 0).toBe(1);
+      expect(losses.get("WEST")?.captured.get("car") ?? 0).toBe(1);
+    });
+
+    it("does not count capture when boarding is within the 60s suppression window", () => {
+      // captureDelayMs=1000, crew boards at relFrame 10 → 10s → inside 60s window → suppressed
+      entityMgr.addEntity(
+        vehicleDef({
+          id: 10, side: "CIV", type: "car", startFrame: 0, endFrame: 199,
+          positions: makeVehiclePositions(200, [{ relFrame: 10, crewIds: [1] }]),
+        }),
+      );
+      entityMgr.addEntity(
+        unitDef({ id: 1, side: "WEST", startFrame: 0, endFrame: 199, positions: makeUnitPositions(200) }),
+      );
+
+      mgr.resolveReferences(entityMgr);
+      mgr.processVehicleOwnership(entityMgr, 1000);
+
+      const losses = mgr.getEquipmentLosses(9999);
+      expect(losses.get("CIV")?.lost_captured?.get("car") ?? 0).toBe(0);
+      expect(losses.get("WEST")?.captured?.get("car") ?? 0).toBe(0);
+    });
+  });
+
+  describe("getGroupKills", () => {
+    let entityMgr: EntityManager;
+
+    beforeEach(() => {
+      entityMgr = new EntityManager();
+    });
+
+    it("returns empty array when resolveReferences has not been called", () => {
+      expect(mgr.getGroupKills(100)).toEqual([]);
+    });
+
+    it("returns groups with zero kills/deaths when no events", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha", isPlayer: true }));
+      entityMgr.addEntity(unitDef({ id: 2, side: "WEST", groupName: "Alpha", isPlayer: false }));
+      mgr.resolveReferences(entityMgr);
+
+      const groups = mgr.getGroupKills(100);
+      expect(groups).toHaveLength(1);
+      expect(groups[0].groupName).toBe("Alpha");
+      expect(groups[0].side).toBe("WEST");
+      expect(groups[0].kills).toBe(0);
+      expect(groups[0].deaths).toBe(0);
+      expect(groups[0].unitCount).toBe(2);
+    });
+
+    it("aggregates kills and deaths within a group", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha" }));
+      entityMgr.addEntity(unitDef({ id: 2, side: "EAST", groupName: "Bravo" }));
+      mgr.addEvent(new HitKilledEvent(50, "killed", 1, 2, 1, 100, "M4A1"));
+      mgr.resolveReferences(entityMgr);
+
+      const groups = mgr.getGroupKills(100);
+      const alpha = groups.find((g) => g.groupName === "Alpha")!;
+      const bravo = groups.find((g) => g.groupName === "Bravo")!;
+      expect(alpha.kills).toBe(1);
+      expect(alpha.deaths).toBe(0);
+      expect(bravo.kills).toBe(0);
+      expect(bravo.deaths).toBe(1);
+    });
+
+    it("aggregates vehicleKills per group", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha" }));
+      entityMgr.addEntity(vehicleDef({ id: 10, side: "EAST" }));
+      mgr.addEvent(new HitKilledEvent(30, "killed", 1, 10, 1, 50, "RPG-7"));
+      mgr.resolveReferences(entityMgr);
+
+      const groups = mgr.getGroupKills(100);
+      const alpha = groups.find((g) => g.groupName === "Alpha")!;
+      expect(alpha.vehicleKills).toBe(1);
+      expect(alpha.kills).toBe(0);
+    });
+
+    it("keeps separate entries for same groupName on different sides", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha 1-1" }));
+      entityMgr.addEntity(unitDef({ id: 2, side: "EAST", groupName: "Alpha 1-1" }));
+      mgr.resolveReferences(entityMgr);
+
+      const groups = mgr.getGroupKills(100);
+      expect(groups).toHaveLength(2);
+      const westGroup = groups.find((g) => g.side === "WEST")!;
+      const eastGroup = groups.find((g) => g.side === "EAST")!;
+      expect(westGroup.groupName).toBe("Alpha 1-1");
+      expect(eastGroup.groupName).toBe("Alpha 1-1");
+    });
+
+    it("counts unitCount and playerCount per group", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha", isPlayer: true }));
+      entityMgr.addEntity(unitDef({ id: 2, side: "WEST", groupName: "Alpha", isPlayer: false }));
+      mgr.resolveReferences(entityMgr);
+
+      const groups = mgr.getGroupKills(100);
+      expect(groups[0].unitCount).toBe(2);
+      expect(groups[0].playerCount).toBe(1);
+    });
+
+    it("respects the frame cutoff", () => {
+      entityMgr.addEntity(unitDef({ id: 1, side: "WEST", groupName: "Alpha" }));
+      entityMgr.addEntity(unitDef({ id: 2, side: "EAST", groupName: "Bravo" }));
+      mgr.addEvent(new HitKilledEvent(50, "killed", 1, 2, 1, 100, "M4A1"));
+      mgr.resolveReferences(entityMgr);
+
+      const before = mgr.getGroupKills(49);
+      expect(before.find((g) => g.groupName === "Alpha")!.kills).toBe(0);
+
+      const after = mgr.getGroupKills(50);
+      expect(after.find((g) => g.groupName === "Alpha")!.kills).toBe(1);
+    });
+  });
+
+  describe("processVehicleOwnership – initial-side suppression window", () => {
     it("suppresses capture when first crew boards within the 60s window", () => {
       // Scenario: garage vehicle, staticSide="CIV", WEST crew boards at frame 10
       // captureDelayMs=1000 → 10s from spawn → well inside the 60s window.
