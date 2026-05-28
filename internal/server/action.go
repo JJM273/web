@@ -192,6 +192,9 @@ func (r *RepoAction) GetAction(ctx context.Context, actionID string) (Action, er
 
 	action, err := r.scanAction(row)
 	if err != nil {
+		if err == sql.ErrNoRows {
+			return Action{}, ErrNotFound
+		}
 		return Action{}, err
 	}
 
@@ -208,7 +211,7 @@ func (r *RepoAction) GetAction(ctx context.Context, actionID string) (Action, er
 func (r *RepoAction) UpdateAction(ctx context.Context, action Action) (Action, error) {
 	polygonJSON := marshalPolygon(action.Polygon)
 
-	_, err := r.db.ExecContext(ctx,
+	result, err := r.db.ExecContext(ctx,
 		`UPDATE actions SET label = ?, color = ?, in_frame = ?, out_frame = ?, polygon = ?, sort_order = ?, status = ?, computed_at = ?
 		 WHERE id = ?`,
 		action.Label,
@@ -223,6 +226,14 @@ func (r *RepoAction) UpdateAction(ctx context.Context, action Action) (Action, e
 	)
 	if err != nil {
 		return Action{}, err
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return Action{}, err
+	}
+	if n == 0 {
+		return Action{}, ErrNotFound
 	}
 
 	return r.GetAction(ctx, action.ID)

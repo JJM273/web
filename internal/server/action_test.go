@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"database/sql"
 	"path/filepath"
 	"testing"
 
@@ -204,7 +203,7 @@ func TestGetAction_NotFound(t *testing.T) {
 	ctx := context.Background()
 
 	_, err := repo.GetAction(ctx, "nonexistent")
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +302,25 @@ func TestUpdateAction(t *testing.T) {
 	assert.Equal(t, 5.0, got.Polygon[0][0])
 }
 
+func TestUpdateAction_NotFound(t *testing.T) {
+	repoOp, repo := newTestRepoAction(t)
+	ctx := context.Background()
+	opID := insertTestOperation(t, repoOp)
+
+	updated := Action{
+		ID:          "nonexistent",
+		RecordingID: opID,
+		Label:       "Updated Label",
+		Color:       "#ffffff",
+		InFrame:     10,
+		OutFrame:    200,
+		SortOrder:   99,
+		Status:      ActionStatusReady,
+	}
+	_, err := repo.UpdateAction(ctx, updated)
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 // ---------------------------------------------------------------------------
 // DeleteAction
 // ---------------------------------------------------------------------------
@@ -323,7 +341,7 @@ func TestDeleteAction(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = repo.GetAction(ctx, "act-del")
-	assert.ErrorIs(t, err, sql.ErrNoRows)
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestDeleteAction_CascadesStats(t *testing.T) {
