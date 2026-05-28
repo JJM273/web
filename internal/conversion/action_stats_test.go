@@ -551,6 +551,82 @@ func TestComputeActionStats_EventOutsideWindow(t *testing.T) {
 	assert.Equal(t, 0, byGroup["Bravo"].Deaths, "death event outside window must not count")
 }
 
+func TestComputeActionStats_GroupNameCollision(t *testing.T) {
+	// WEST and EAST both have a group named "Alpha". Without the side-keyed map
+	// they would be merged into a single entry, corrupting all stats.
+	dir := t.TempDir()
+	const filename = "test_collision"
+
+	m := &storage.Manifest{
+		EndFrame:       9,
+		ChunkSize:      10,
+		CaptureDelayMs: 1000,
+		ChunkCount:     1,
+		Entities: []storage.EntityDef{
+			// WEST Alpha: 2 units, 1 player
+			{ID: 1, Type: "unit", Name: "WestAlpha1", Side: "WEST", Group: "Alpha", IsPlayer: true},
+			{ID: 2, Type: "unit", Name: "WestAlpha2", Side: "WEST", Group: "Alpha"},
+			// EAST Alpha: 1 unit
+			{ID: 3, Type: "unit", Name: "EastAlpha1", Side: "EAST", Group: "Alpha"},
+		},
+		Events: []storage.Event{
+			// Entity 1 (WEST Alpha) kills entity 3 (EAST Alpha)
+			{FrameNum: 5, Type: "killed", SourceID: 1, TargetID: 3},
+		},
+	}
+	writeManifest(t, dir, filename, m)
+
+	// All entities inside polygon for all 10 frames (10 000 ms > threshold)
+	chunk := &pbv1.Chunk{Index: 0, StartFrame: 0, FrameCount: 10}
+	for fn := uint32(0); fn < 10; fn++ {
+		chunk.Frames = append(chunk.Frames, &pbv1.Frame{
+			FrameNum: fn,
+			Entities: []*pbv1.EntityState{
+				{EntityId: 1, PosX: 5, PosY: 5},
+				{EntityId: 2, PosX: 5, PosY: 5},
+				{EntityId: 3, PosX: 5, PosY: 5},
+			},
+		})
+	}
+	writeChunk(t, dir, filename, chunk)
+
+	action := server.Action{
+		ID:       "act-collision",
+		InFrame:  0,
+		OutFrame: 9,
+		Polygon:  simpleSquarePolygon(),
+	}
+
+	engine := storage.NewProtobufEngine(dir)
+	stats, err := ComputeActionStats(context.Background(), engine, dir, filename, action)
+	require.NoError(t, err)
+
+	// Must produce two separate ActionStats entries — one per side
+	require.Len(t, stats, 2, "WEST Alpha and EAST Alpha must be separate entries")
+
+	// Index by side for deterministic assertions
+	bySide := make(map[string]server.ActionStats)
+	for _, s := range stats {
+		assert.Equal(t, "Alpha", s.GroupName, "GroupName should be the plain group name, not the composite key")
+		bySide[s.Side] = s
+	}
+
+	require.Contains(t, bySide, "WEST", "expected a WEST entry")
+	require.Contains(t, bySide, "EAST", "expected an EAST entry")
+
+	west := bySide["WEST"]
+	assert.Equal(t, 2, west.UnitCount, "WEST Alpha has 2 units")
+	assert.Equal(t, 1, west.PlayerCount, "WEST Alpha has 1 player")
+	assert.Equal(t, 1, west.Kills, "WEST Alpha scored 1 kill")
+	assert.Equal(t, 0, west.Deaths, "WEST Alpha had no deaths")
+
+	east := bySide["EAST"]
+	assert.Equal(t, 1, east.UnitCount, "EAST Alpha has 1 unit")
+	assert.Equal(t, 0, east.PlayerCount, "EAST Alpha has no players")
+	assert.Equal(t, 0, east.Kills, "EAST Alpha made no kills")
+	assert.Equal(t, 1, east.Deaths, "EAST Alpha lost 1 unit")
+}
+
 func TestComputeActionStats_MovementType(t *testing.T) {
 	// Shared manifest: three units in three groups.
 	//   - Entity 1 (Alpha): foot — never in a vehicle

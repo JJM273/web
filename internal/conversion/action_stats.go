@@ -128,14 +128,15 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 	groups := make(map[string]*groupStats)
 
 	getGroup := func(groupName, side string) *groupStats {
-		gs, ok := groups[groupName]
+		key := groupName + "|" + side
+		gs, ok := groups[key]
 		if !ok {
 			gs = &groupStats{
 				side:              side,
 				vehiclesDestroyed: make(map[string]int),
 				vehiclesLost:      make(map[string]int),
 			}
-			groups[groupName] = gs
+			groups[key] = gs
 		}
 		return gs
 	}
@@ -225,8 +226,12 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 							gs.vehiclesLost[tgtEnt.VehicleClass]++
 						}
 					} else {
-						// source is not participating, still count as lost if from outside
-						gs.vehiclesLost[tgtEnt.VehicleClass]++
+						// source is not participating; only count as lost if it is an enemy
+						// (different side) — friendly-fire from outside must not count
+						srcEnt, ok := entityByID[evt.SourceID]
+						if ok && srcEnt.Side != tgtEnt.Side {
+							gs.vehiclesLost[tgtEnt.VehicleClass]++
+						}
 					}
 				}
 			}
@@ -272,10 +277,16 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 
 	// Build result
 	result := make([]server.ActionStats, 0, len(groups))
-	for groupName, gs := range groups {
+	for key, gs := range groups {
 		// Only emit groups with at least one participating entity
 		if gs.unitCount == 0 {
 			continue
+		}
+
+		// Extract the group name from the composite key (groupName + "|" + side)
+		groupName := key
+		if idx := strings.LastIndex(key, "|"); idx >= 0 {
+			groupName = key[:idx]
 		}
 
 		var vd, vl map[string]int
