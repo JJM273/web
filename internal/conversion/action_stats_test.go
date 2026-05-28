@@ -550,3 +550,73 @@ func TestComputeActionStats_EventOutsideWindow(t *testing.T) {
 	assert.Equal(t, 0, byGroup["Alpha"].Kills, "kill event outside window must not count")
 	assert.Equal(t, 0, byGroup["Bravo"].Deaths, "death event outside window must not count")
 }
+
+func TestComputeActionStats_MovementType(t *testing.T) {
+	// Shared manifest: three units in three groups.
+	//   - Entity 1 (Alpha): foot — never in a vehicle
+	//   - Entity 2 (Bravo): in a wheeled vehicle (entity 10, VehicleClass "Wheeled_APC")
+	//   - Entity 3 (Charlie): in a helicopter (entity 11, VehicleClass "Helicopter")
+	//   - Entity 10: wheeled vehicle (VehicleClass "Wheeled_APC")
+	//   - Entity 11: helicopter vehicle (VehicleClass "Helicopter")
+	dir := t.TempDir()
+	const filename = "test_movtype"
+
+	m := &storage.Manifest{
+		EndFrame:       9,
+		ChunkSize:      10,
+		CaptureDelayMs: 1000,
+		ChunkCount:     1,
+		Entities: []storage.EntityDef{
+			{ID: 1, Type: "unit", Name: "FootSoldier", Side: "WEST", Group: "Alpha"},
+			{ID: 2, Type: "unit", Name: "WheeledRider", Side: "WEST", Group: "Bravo"},
+			{ID: 3, Type: "unit", Name: "AirRider", Side: "WEST", Group: "Charlie"},
+			{ID: 10, Type: "vehicle", Name: "APC", Side: "WEST", Group: "Bravo", VehicleClass: "Wheeled_APC"},
+			{ID: 11, Type: "vehicle", Name: "Heli", Side: "WEST", Group: "Charlie", VehicleClass: "Helicopter"},
+		},
+	}
+	writeManifest(t, dir, filename, m)
+
+	// All units inside polygon for all 10 frames; entities 2 and 3 are in vehicles.
+	chunk := &pbv1.Chunk{Index: 0, StartFrame: 0, FrameCount: 10}
+	for fn := uint32(0); fn < 10; fn++ {
+		chunk.Frames = append(chunk.Frames, &pbv1.Frame{
+			FrameNum: fn,
+			Entities: []*pbv1.EntityState{
+				{EntityId: 1, PosX: 5, PosY: 5},
+				{EntityId: 2, PosX: 5, PosY: 5, IsInVehicle: true, VehicleId: 10},
+				{EntityId: 3, PosX: 5, PosY: 5, IsInVehicle: true, VehicleId: 11},
+				{EntityId: 10, PosX: 5, PosY: 5},
+				{EntityId: 11, PosX: 5, PosY: 5},
+			},
+		})
+	}
+	writeChunk(t, dir, filename, chunk)
+
+	action := server.Action{
+		ID:       "act-movtype",
+		InFrame:  0,
+		OutFrame: 9,
+		Polygon:  simpleSquarePolygon(),
+	}
+
+	engine := storage.NewProtobufEngine(dir)
+	stats, err := ComputeActionStats(context.Background(), engine, dir, filename, action)
+	require.NoError(t, err)
+
+	byGroup := make(map[string]server.ActionStats)
+	for _, s := range stats {
+		byGroup[s.GroupName] = s
+	}
+
+	// Alpha: no vehicle frames → "foot"
+	require.NotNil(t, byGroup["Alpha"].PrimaryMovementType, "Alpha should have a movement type")
+	assert.Equal(t, "foot", *byGroup["Alpha"].PrimaryMovementType, "Alpha is foot-mobile")
+
+	// Bravo: wheeled vehicle → "wheeled"
+	require.NotNil(t, byGroup["Bravo"].PrimaryMovementType, "Bravo should have a movement type")
+	assert.Equal(t, "wheeled", *byGroup["Bravo"].PrimaryMovementType, "Bravo is wheeled")
+
+	// Charlie: helicopter → "air"
+	require.NotNil(t, byGroup["Charlie"].PrimaryMovementType, "Charlie should have a movement type")
+	assert.Equal(t, "air", *byGroup["Charlie"].PrimaryMovementType, "Charlie is air-mobile")
+}

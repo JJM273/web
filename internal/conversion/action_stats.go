@@ -262,6 +262,14 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 		}
 	}
 
+	// For groups with no vehicle movement detected, default to "foot"
+	for _, gs := range groups {
+		if gs.primaryMovementType == nil {
+			foot := "foot"
+			gs.primaryMovementType = &foot
+		}
+	}
+
 	// Build result
 	result := make([]server.ActionStats, 0, len(groups))
 	for groupName, gs := range groups {
