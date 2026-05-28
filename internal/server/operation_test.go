@@ -1451,6 +1451,23 @@ func TestMigrationV13ActionTables(t *testing.T) {
 	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM action_stats WHERE action_id = 'act-1'`).Scan(&count))
 	assert.Equal(t, 0, count, "action_stats rows should be cascade-deleted with the parent action")
 
+	// Verify ON DELETE CASCADE from operations → actions.
+	// Insert a fresh operation and action, then delete the operation.
+	_, err = repo.db.Exec(`INSERT INTO operations (world_name, mission_name, mission_duration, filename, date, tag) VALUES ('stratis', 'CascadeTest', 60, 'cascade_test', '2026-02-01', '')`)
+	require.NoError(t, err)
+	var cascadeOpID int64
+	require.NoError(t, repo.db.QueryRow(`SELECT last_insert_rowid()`).Scan(&cascadeOpID))
+
+	_, err = repo.db.Exec(`INSERT INTO actions (id, recording_id, label, color, in_frame, out_frame, polygon, sort_order) VALUES ('act-cascade', ?, 'Cascade Action', '#00ff00', 0, 50, '[[0,0]]', 1)`, cascadeOpID)
+	require.NoError(t, err)
+
+	_, err = repo.db.Exec(`DELETE FROM operations WHERE id = ?`, cascadeOpID)
+	require.NoError(t, err)
+
+	var actionCount int
+	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM actions WHERE recording_id = ?`, cascadeOpID).Scan(&actionCount))
+	assert.Equal(t, 0, actionCount, "actions rows should be cascade-deleted when the parent operation is deleted")
+
 	// Verify schema version is recorded correctly.
 	var version int
 	require.NoError(t, repo.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))

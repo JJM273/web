@@ -79,7 +79,7 @@ func NewRepoOperation(pathDB string) (*RepoOperation, error) {
 // including filesystem migrations that rename mission data files/directories
 // under dataDir. If dataDir is empty, filesystem migrations are skipped.
 func NewRepoOperationWithDataDir(pathDB, dataDir string) (*RepoOperation, error) {
-	db, err := sql.Open("sqlite3", pathDB)
+	db, err := sql.Open("sqlite3", pathDB+"?_foreign_keys=on")
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (r *RepoOperation) migration() (err error) {
 				sort_order INTEGER NOT NULL,
 				status TEXT NOT NULL DEFAULT 'pending',
 				computed_at TEXT,
-				FOREIGN KEY (recording_id) REFERENCES operations(id)
+				FOREIGN KEY (recording_id) REFERENCES operations(id) ON DELETE CASCADE
 			)`,
 			`CREATE TABLE IF NOT EXISTS action_stats (
 				id INTEGER PRIMARY KEY AUTOINCREMENT,
