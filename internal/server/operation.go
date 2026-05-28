@@ -260,6 +260,43 @@ func (r *RepoOperation) migration() (err error) {
 		}
 	}
 
+	if version < 13 {
+		if err = r.runMigration(13,
+			`CREATE TABLE IF NOT EXISTS actions (
+				id TEXT PRIMARY KEY,
+				recording_id INTEGER NOT NULL,
+				label TEXT NOT NULL,
+				color TEXT NOT NULL,
+				in_frame INTEGER NOT NULL,
+				out_frame INTEGER NOT NULL,
+				polygon TEXT NOT NULL,
+				sort_order INTEGER NOT NULL,
+				status TEXT NOT NULL DEFAULT 'pending',
+				computed_at TEXT,
+				FOREIGN KEY (recording_id) REFERENCES operations(id)
+			)`,
+			`CREATE TABLE IF NOT EXISTS action_stats (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				action_id TEXT NOT NULL,
+				group_name TEXT NOT NULL,
+				side TEXT NOT NULL,
+				unit_count INTEGER NOT NULL,
+				player_count INTEGER NOT NULL,
+				kills INTEGER NOT NULL DEFAULT 0,
+				deaths INTEGER NOT NULL DEFAULT 0,
+				vehicles_destroyed TEXT NOT NULL DEFAULT '{}',
+				vehicles_lost TEXT NOT NULL DEFAULT '{}',
+				rounds_fired INTEGER NOT NULL DEFAULT 0,
+				entered_frame INTEGER,
+				exited_frame INTEGER,
+				primary_movement_type TEXT,
+				FOREIGN KEY (action_id) REFERENCES actions(id) ON DELETE CASCADE
+			)`,
+		); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 

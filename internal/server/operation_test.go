@@ -438,7 +438,7 @@ func TestMigrationRerun(t *testing.T) {
 	var version int
 	err = repo2.db.QueryRow("SELECT db FROM version ORDER BY db DESC LIMIT 1").Scan(&version)
 	assert.NoError(t, err)
-	assert.Equal(t, 12, version)
+	assert.Equal(t, 13, version)
 }
 
 func TestMigrationV10NormalizeWorldName(t *testing.T) {
@@ -545,7 +545,7 @@ func TestMigrationV11DecodeFilenames(t *testing.T) {
 	// Version recorded.
 	var version int
 	require.NoError(t, repo2.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))
-	assert.Equal(t, 12, version)
+	assert.Equal(t, 13, version)
 }
 
 func TestDecodeFilename(t *testing.T) {
@@ -850,7 +850,7 @@ func TestMigrationV11_DBCollisionSkipped(t *testing.T) {
 	// Version still bumped.
 	var version int
 	require.NoError(t, repo2.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))
-	assert.Equal(t, 12, version)
+	assert.Equal(t, 13, version)
 }
 
 func TestMigrationV11_FilesystemCollisionSkipped(t *testing.T) {
@@ -1377,6 +1377,84 @@ func TestStoreWithAllFields(t *testing.T) {
 	assert.Equal(t, 5, got.SideComposition["WEST"].Kills)
 	assert.Equal(t, 8, got.SideComposition["EAST"].Players)
 	assert.Equal(t, 35, got.SideComposition["EAST"].Units)
+}
+
+func TestMigrationV13ActionTables(t *testing.T) {
+	dir := t.TempDir()
+	pathDB := filepath.Join(dir, "test.db")
+
+	repo, err := NewRepoOperation(pathDB)
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, repo.db.Close()) }()
+
+	// Verify the actions table exists with the expected columns.
+	actionsColumns := map[string]bool{}
+	rows, err := repo.db.Query(`PRAGMA table_info(actions)`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		require.NoError(t, rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk))
+		actionsColumns[name] = true
+	}
+	require.NoError(t, rows.Err())
+
+	for _, col := range []string{"id", "recording_id", "label", "color", "in_frame", "out_frame", "polygon", "sort_order", "status", "computed_at"} {
+		assert.True(t, actionsColumns[col], "actions table missing column: %s", col)
+	}
+
+	// Verify the action_stats table exists with the expected columns.
+	statsColumns := map[string]bool{}
+	rows2, err := repo.db.Query(`PRAGMA table_info(action_stats)`)
+	require.NoError(t, err)
+	defer rows2.Close()
+	for rows2.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue sql.NullString
+		var pk int
+		require.NoError(t, rows2.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk))
+		statsColumns[name] = true
+	}
+	require.NoError(t, rows2.Err())
+
+	for _, col := range []string{"id", "action_id", "group_name", "side", "unit_count", "player_count", "kills", "deaths", "vehicles_destroyed", "vehicles_lost", "rounds_fired", "entered_frame", "exited_frame", "primary_movement_type"} {
+		assert.True(t, statsColumns[col], "action_stats table missing column: %s", col)
+	}
+
+	// Verify ON DELETE CASCADE by inserting and deleting a parent row.
+	// SQLite foreign key enforcement must be enabled per-connection.
+	_, err = repo.db.Exec(`PRAGMA foreign_keys = ON`)
+	require.NoError(t, err)
+
+	_, err = repo.db.Exec(`INSERT INTO operations (world_name, mission_name, mission_duration, filename, date, tag) VALUES ('altis', 'm', 100, 'f', '2026-01-01', '')`)
+	require.NoError(t, err)
+	var opID int64
+	require.NoError(t, repo.db.QueryRow(`SELECT last_insert_rowid()`).Scan(&opID))
+
+	_, err = repo.db.Exec(`INSERT INTO actions (id, recording_id, label, color, in_frame, out_frame, polygon, sort_order) VALUES ('act-1', ?, 'Test Action', '#ff0000', 0, 100, '[[0,0],[1,1]]', 1)`, opID)
+	require.NoError(t, err)
+
+	_, err = repo.db.Exec(`INSERT INTO action_stats (action_id, group_name, side, unit_count, player_count) VALUES ('act-1', 'Alpha', 'WEST', 5, 3)`)
+	require.NoError(t, err)
+
+	// Deleting the parent action should cascade-delete the stats row.
+	_, err = repo.db.Exec(`DELETE FROM actions WHERE id = 'act-1'`)
+	require.NoError(t, err)
+
+	var count int
+	require.NoError(t, repo.db.QueryRow(`SELECT COUNT(*) FROM action_stats WHERE action_id = 'act-1'`).Scan(&count))
+	assert.Equal(t, 0, count, "action_stats rows should be cascade-deleted with the parent action")
+
+	// Verify schema version is recorded correctly.
+	var version int
+	require.NoError(t, repo.db.QueryRow(`SELECT MAX(db) FROM version`).Scan(&version))
+	assert.Equal(t, 13, version)
 }
 
 func TestSelectDefaults(t *testing.T) {
