@@ -627,6 +627,161 @@ func TestComputeActionStats_GroupNameCollision(t *testing.T) {
 	assert.Equal(t, 1, east.Deaths, "EAST Alpha lost 1 unit")
 }
 
+func TestComputeActionStats_VehiclesDestroyedAndLost(t *testing.T) {
+	// Scenario A: participating source kills enemy vehicle
+	// → source group gets VehiclesDestroyed["tank"]=1; target group gets VehiclesLost["tank"]=1
+	t.Run("participating source kills enemy vehicle", func(t *testing.T) {
+		dir := t.TempDir()
+		const filename = "test_vd_a"
+
+		m := &storage.Manifest{
+			EndFrame:       9,
+			ChunkSize:      10,
+			CaptureDelayMs: 1000,
+			ChunkCount:     1,
+			Entities: []storage.EntityDef{
+				// Alpha: one unit (the shooter) — unit count will be 1 so group is emitted
+				{ID: 1, Type: "unit", Name: "WestSoldier", Side: "WEST", Group: "Alpha"},
+				// Bravo: one unit + one vehicle — unit count will be 1 so group is emitted
+				{ID: 3, Type: "unit", Name: "EastCrew", Side: "EAST", Group: "Bravo"},
+				{ID: 2, Type: "vehicle", Name: "EastTank", Side: "EAST", Group: "Bravo", VehicleClass: "tank"},
+			},
+			Events: []storage.Event{
+				{FrameNum: 5, Type: "killed", SourceID: 1, TargetID: 2},
+			},
+		}
+		writeManifest(t, dir, filename, m)
+
+		chunk := &pbv1.Chunk{Index: 0, StartFrame: 0, FrameCount: 10}
+		for fn := uint32(0); fn < 10; fn++ {
+			chunk.Frames = append(chunk.Frames, &pbv1.Frame{
+				FrameNum: fn,
+				Entities: []*pbv1.EntityState{
+					{EntityId: 1, PosX: 5, PosY: 5},
+					{EntityId: 2, PosX: 5, PosY: 5},
+					{EntityId: 3, PosX: 5, PosY: 5},
+				},
+			})
+		}
+		writeChunk(t, dir, filename, chunk)
+
+		action := server.Action{ID: "act-vd-a", InFrame: 0, OutFrame: 9, Polygon: simpleSquarePolygon()}
+		engine := storage.NewProtobufEngine(dir)
+		stats, err := ComputeActionStats(context.Background(), engine, dir, filename, action)
+		require.NoError(t, err)
+
+		byGroup := make(map[string]server.ActionStats)
+		for _, s := range stats {
+			byGroup[s.GroupName] = s
+		}
+
+		require.Contains(t, byGroup, "Alpha")
+		require.Contains(t, byGroup, "Bravo")
+		assert.Equal(t, map[string]int{"tank": 1}, byGroup["Alpha"].VehiclesDestroyed, "Alpha destroyed 1 tank")
+		assert.Nil(t, byGroup["Alpha"].VehiclesLost, "Alpha lost no vehicles")
+		assert.Equal(t, map[string]int{"tank": 1}, byGroup["Bravo"].VehiclesLost, "Bravo lost 1 tank")
+		assert.Nil(t, byGroup["Bravo"].VehiclesDestroyed, "Bravo destroyed no vehicles")
+	})
+
+	// Scenario B: non-participating enemy source kills participating vehicle
+	// → target participating group gets VehiclesLost["apc"]=1; source group has no VehiclesDestroyed
+	t.Run("non-participating source kills participating vehicle", func(t *testing.T) {
+		dir := t.TempDir()
+		const filename = "test_vd_b"
+
+		m := &storage.Manifest{
+			EndFrame:       9,
+			ChunkSize:      10,
+			CaptureDelayMs: 1000,
+			ChunkCount:     1,
+			Entities: []storage.EntityDef{
+				// Entity 1 (source): EAST unit, NOT in polygon (non-participating)
+				{ID: 1, Type: "unit", Name: "EastShooter", Side: "EAST", Group: "Bravo"},
+				// Entity 3: WEST unit, inside polygon — makes Alpha emittable
+				{ID: 3, Type: "unit", Name: "WestSoldier", Side: "WEST", Group: "Alpha"},
+				// Entity 2: WEST vehicle, inside polygon — the vehicle that gets killed
+				{ID: 2, Type: "vehicle", Name: "WestAPC", Side: "WEST", Group: "Alpha", VehicleClass: "apc"},
+			},
+			Events: []storage.Event{
+				{FrameNum: 5, Type: "killed", SourceID: 1, TargetID: 2},
+			},
+		}
+		writeManifest(t, dir, filename, m)
+
+		chunk := &pbv1.Chunk{Index: 0, StartFrame: 0, FrameCount: 10}
+		for fn := uint32(0); fn < 10; fn++ {
+			chunk.Frames = append(chunk.Frames, &pbv1.Frame{
+				FrameNum: fn,
+				Entities: []*pbv1.EntityState{
+					// Entity 1 is far outside the polygon (non-participating)
+					{EntityId: 1, PosX: 50, PosY: 50},
+					// Entity 2 and 3 are inside polygon (participating)
+					{EntityId: 2, PosX: 5, PosY: 5},
+					{EntityId: 3, PosX: 5, PosY: 5},
+				},
+			})
+		}
+		writeChunk(t, dir, filename, chunk)
+
+		action := server.Action{ID: "act-vd-b", InFrame: 0, OutFrame: 9, Polygon: simpleSquarePolygon()}
+		engine := storage.NewProtobufEngine(dir)
+		stats, err := ComputeActionStats(context.Background(), engine, dir, filename, action)
+		require.NoError(t, err)
+
+		// Only Alpha (the participating group) should appear; Bravo has no participants
+		require.Len(t, stats, 1)
+		alpha := stats[0]
+		require.Equal(t, "Alpha", alpha.GroupName)
+		assert.Equal(t, map[string]int{"apc": 1}, alpha.VehiclesLost, "Alpha lost 1 apc to non-participating enemy")
+		assert.Nil(t, alpha.VehiclesDestroyed, "Alpha destroyed no vehicles")
+	})
+
+	// Scenario C: participating source friendly-kills a vehicle (same side)
+	// → NO VehiclesDestroyed, NO VehiclesLost
+	t.Run("friendly-fire vehicle kill not counted", func(t *testing.T) {
+		dir := t.TempDir()
+		const filename = "test_vd_c"
+
+		m := &storage.Manifest{
+			EndFrame:       9,
+			ChunkSize:      10,
+			CaptureDelayMs: 1000,
+			ChunkCount:     1,
+			Entities: []storage.EntityDef{
+				{ID: 1, Type: "unit", Name: "WestSoldier", Side: "WEST", Group: "Alpha"},
+				{ID: 2, Type: "vehicle", Name: "WestTank", Side: "WEST", Group: "Alpha", VehicleClass: "tank"},
+			},
+			Events: []storage.Event{
+				// Friendly fire: same side
+				{FrameNum: 5, Type: "killed", SourceID: 1, TargetID: 2},
+			},
+		}
+		writeManifest(t, dir, filename, m)
+
+		chunk := &pbv1.Chunk{Index: 0, StartFrame: 0, FrameCount: 10}
+		for fn := uint32(0); fn < 10; fn++ {
+			chunk.Frames = append(chunk.Frames, &pbv1.Frame{
+				FrameNum: fn,
+				Entities: []*pbv1.EntityState{
+					{EntityId: 1, PosX: 5, PosY: 5},
+					{EntityId: 2, PosX: 5, PosY: 5},
+				},
+			})
+		}
+		writeChunk(t, dir, filename, chunk)
+
+		action := server.Action{ID: "act-vd-c", InFrame: 0, OutFrame: 9, Polygon: simpleSquarePolygon()}
+		engine := storage.NewProtobufEngine(dir)
+		stats, err := ComputeActionStats(context.Background(), engine, dir, filename, action)
+		require.NoError(t, err)
+
+		require.Len(t, stats, 1)
+		alpha := stats[0]
+		assert.Nil(t, alpha.VehiclesDestroyed, "friendly-fire must not count as VehiclesDestroyed")
+		assert.Nil(t, alpha.VehiclesLost, "friendly-fire must not count as VehiclesLost")
+	})
+}
+
 func TestComputeActionStats_MovementType(t *testing.T) {
 	// Shared manifest: three units in three groups.
 	//   - Entity 1 (Alpha): foot — never in a vehicle

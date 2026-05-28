@@ -55,8 +55,11 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 	for chunkIdx := firstChunk; chunkIdx <= lastChunk; chunkIdx++ {
 		chunk, err := loadChunk(dataDir, filename, chunkIdx)
 		if err != nil {
-			// Missing chunks are not fatal; skip gracefully
-			continue
+			if os.IsNotExist(err) {
+				// Chunk doesn't exist yet; skip silently.
+				continue
+			}
+			return nil, fmt.Errorf("loading chunk %d: %w", chunkIdx, err)
 		}
 
 		for _, frame := range chunk.Frames {
@@ -148,9 +151,11 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 			continue
 		}
 		gs := getGroup(ent.Group, ent.Side)
-		gs.unitCount++
-		if ent.IsPlayer {
-			gs.playerCount++
+		if ent.Type == "unit" {
+			gs.unitCount++
+			if ent.IsPlayer {
+				gs.playerCount++
+			}
 		}
 
 		// enteredFrame / exitedFrame
@@ -204,9 +209,11 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 				gs := getGroup(srcEnt.Group, srcEnt.Side)
 				gs.kills++
 
-				// vehiclesDestroyed: if target is a vehicle
+				// vehiclesDestroyed: if target is an enemy vehicle (no friendly-fire)
 				if tgtEnt, ok := entityByID[evt.TargetID]; ok && tgtEnt.Type == "vehicle" && tgtEnt.VehicleClass != "" {
-					gs.vehiclesDestroyed[tgtEnt.VehicleClass]++
+					if srcEnt.Side != tgtEnt.Side {
+						gs.vehiclesDestroyed[tgtEnt.VehicleClass]++
+					}
 				}
 			}
 		}
@@ -218,20 +225,10 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 				gs := getGroup(tgtEnt.Group, tgtEnt.Side)
 				gs.deaths++
 
-				// vehiclesLost: target is a vehicle in this group killed by an enemy
+				// vehiclesLost: target is a vehicle killed by an enemy (any source, participating or not)
 				if tgtEnt.Type == "vehicle" && tgtEnt.VehicleClass != "" {
-					if srcParticipating {
-						srcEnt, ok := entityByID[evt.SourceID]
-						if ok && srcEnt.Side != tgtEnt.Side {
-							gs.vehiclesLost[tgtEnt.VehicleClass]++
-						}
-					} else {
-						// source is not participating; only count as lost if it is an enemy
-						// (different side) — friendly-fire from outside must not count
-						srcEnt, ok := entityByID[evt.SourceID]
-						if ok && srcEnt.Side != tgtEnt.Side {
-							gs.vehiclesLost[tgtEnt.VehicleClass]++
-						}
+					if srcEnt, ok := entityByID[evt.SourceID]; ok && srcEnt.Side != tgtEnt.Side {
+						gs.vehiclesLost[tgtEnt.VehicleClass]++
 					}
 				}
 			}
