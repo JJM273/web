@@ -54,19 +54,21 @@ type ConversionTrigger interface {
 }
 
 type Handler struct {
-	repoOperation     *RepoOperation
-	repoMarker        *RepoMarker
-	repoAmmo          *RepoAmmo
-	setting           Setting
-	jwt               *JWTManager
-	conversionTrigger ConversionTrigger   // optional, nil if conversion disabled
-	staticFS          fs.FS               // optional, nil disables static file serving
-	maptoolMgr        *maptool.JobManager // optional, nil if maptool disabled
-	maptoolCfg        *maptoolConfig      // optional, nil if maptool disabled
-	openIDVerifier    openIDVerifier
-	openIDCache       openid.DiscoveryCache
-	openIDNonceStore  openid.NonceStore
-	steamAPIBaseURL   string // override for testing; empty uses default
+	repoOperation      *RepoOperation
+	repoMarker         *RepoMarker
+	repoAmmo           *RepoAmmo
+	repoAction         *RepoAction
+	setting            Setting
+	jwt                *JWTManager
+	conversionTrigger  ConversionTrigger   // optional, nil if conversion disabled
+	actionStatsTrigger ActionStatsTrigger  // optional, nil if action stats disabled
+	staticFS           fs.FS               // optional, nil disables static file serving
+	maptoolMgr         *maptool.JobManager // optional, nil if maptool disabled
+	maptoolCfg         *maptoolConfig      // optional, nil if maptool disabled
+	openIDVerifier     openIDVerifier
+	openIDCache        openid.DiscoveryCache
+	openIDNonceStore   openid.NonceStore
+	steamAPIBaseURL    string // override for testing; empty uses default
 
 	spriteOnce    sync.Once
 	spriteFiles   map[string][]byte
@@ -80,6 +82,20 @@ type HandlerOption func(*Handler)
 func WithConversionTrigger(trigger ConversionTrigger) HandlerOption {
 	return func(h *Handler) {
 		h.conversionTrigger = trigger
+	}
+}
+
+// WithRepoAction sets the action repository for action CRUD endpoints
+func WithRepoAction(repo *RepoAction) HandlerOption {
+	return func(h *Handler) {
+		h.repoAction = repo
+	}
+}
+
+// WithActionStatsTrigger sets the trigger for async action stats computation
+func WithActionStatsTrigger(trigger ActionStatsTrigger) HandlerOption {
+	return func(h *Handler) {
+		h.actionStatsTrigger = trigger
 	}
 }
 
@@ -175,6 +191,11 @@ func NewHandler(
 	fuego.Get(g, "/api/v1/auth/me", hdlr.GetMe, fuego.OptionTags("Auth"))
 	fuego.Post(g, "/api/v1/auth/logout", hdlr.Logout, fuego.OptionTags("Auth"), fuego.OptionSecurity(bearerAuth))
 
+	// Action endpoints: GET is viewer-gated, write ops require admin
+	if hdlr.repoAction != nil {
+		fuego.Get(viewer, "/api/v1/operations/{id}/actions", hdlr.GetActions, fuego.OptionTags("Actions"))
+	}
+
 	// Admin (require JWT)
 	admin := fuego.Group(g, "")
 	fuego.Use(admin, hdlr.requireAdmin)
@@ -187,6 +208,11 @@ func NewHandler(
 	fuego.Get(admin, "/api/v1/auth/allowlist", hdlr.GetAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Put(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.AddToAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
 	fuego.Delete(admin, "/api/v1/auth/allowlist/{steamId}", hdlr.RemoveFromAllowlist, fuego.OptionTags("Admin"), fuego.OptionSecurity(bearerAuth))
+	if hdlr.repoAction != nil {
+		fuego.Post(admin, "/api/v1/operations/{id}/actions", hdlr.CreateAction, fuego.OptionTags("Actions"), fuego.OptionSecurity(bearerAuth))
+		fuego.Put(admin, "/api/v1/operations/{id}/actions/{aid}", hdlr.UpdateAction, fuego.OptionTags("Actions"), fuego.OptionSecurity(bearerAuth))
+		fuego.Delete(admin, "/api/v1/operations/{id}/actions/{aid}", hdlr.DeleteAction, fuego.OptionTags("Actions"), fuego.OptionSecurity(bearerAuth))
+	}
 
 	// MapTool (require admin JWT; SSE endpoint handles its own auth via query param)
 	if hdlr.maptoolMgr != nil {

@@ -75,6 +75,11 @@ func NewRepoOperation(pathDB string) (*RepoOperation, error) {
 	return NewRepoOperationWithDataDir(pathDB, "")
 }
 
+// DB returns the underlying *sql.DB, allowing other repositories to share the connection.
+func (r *RepoOperation) DB() *sql.DB {
+	return r.db
+}
+
 // NewRepoOperationWithDataDir opens the operation repository and runs migrations,
 // including filesystem migrations that rename mission data files/directories
 // under dataDir. If dataDir is empty, filesystem migrations are skipped.

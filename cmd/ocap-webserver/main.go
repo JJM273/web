@@ -67,6 +67,8 @@ func app() error {
 		return fmt.Errorf("ammo: %w", err)
 	}
 
+	action := server.NewRepoAction(operation.DB())
+
 	s := fuego.NewServer(
 		fuego.WithAddr(setting.Listen),
 		fuego.WithLogHandler(logHandler),
@@ -111,6 +113,7 @@ func app() error {
 
 	var handlerOpts []server.HandlerOption
 	handlerOpts = append(handlerOpts, server.WithStaticFS(staticFS))
+	handlerOpts = append(handlerOpts, server.WithRepoAction(action))
 	if setting.Conversion.Enabled {
 		interval, err := time.ParseDuration(setting.Conversion.Interval)
 		if err != nil {
@@ -128,9 +131,11 @@ func app() error {
 				RetryFailed: setting.Conversion.RetryFailed,
 			},
 		)
+		worker.SetActionRepo(action)
 
-		// Pass worker to handler for event-driven conversion on upload
+		// Pass worker to handler for event-driven conversion on upload and action stats
 		handlerOpts = append(handlerOpts, server.WithConversionTrigger(worker))
+		handlerOpts = append(handlerOpts, server.WithActionStatsTrigger(worker))
 
 		// Start background worker for retries and batch processing
 		go worker.Start(ctx)
