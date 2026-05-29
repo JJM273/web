@@ -1514,6 +1514,7 @@ export class LeafletRenderer implements MapRenderer {
   enableDrawMode(
     onComplete: (polygon: ArmaCoord[]) => void,
     onCancel: () => void,
+    color = "#f39c12",
   ): void {
     if (this._isDrawing) {
       this.disableDrawMode();
@@ -1525,25 +1526,44 @@ export class LeafletRenderer implements MapRenderer {
     this._drawClickTimer = null;
     this._drawCtrlPanning = false;
 
+    console.debug("[draw] enableDrawMode, color:", color);
+
     // Create SVG overlay covering the full map container
     const container = this.map.getContainer();
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.style.cssText =
-      "position:absolute;top:0;left:0;width:100%;height:100%;z-index:450;pointer-events:all;";
+      "position:absolute;top:0;left:0;width:100%;height:100%;z-index:450;pointer-events:all;cursor:crosshair;";
+    // Drop-shadow for contrast against light/dark map backgrounds
+    svg.style.filter = "drop-shadow(0 0 2px rgba(0,0,0,0.9)) drop-shadow(0 0 4px rgba(0,0,0,0.7))";
     container.appendChild(svg);
     this._drawSvg = svg;
 
-    // Create preview elements
+    // Create preview elements (each has a shadow pass + color pass for contrast)
+    const polylineShadow = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polylineShadow.setAttribute("fill", "none");
+    polylineShadow.setAttribute("stroke", "rgba(0,0,0,0.6)");
+    polylineShadow.setAttribute("stroke-width", "5");
+    polylineShadow.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(polylineShadow);
+
     const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
     polyline.setAttribute("fill", "none");
-    polyline.setAttribute("stroke", "rgba(255,255,255,0.7)");
-    polyline.setAttribute("stroke-width", "2");
+    polyline.setAttribute("stroke", color);
+    polyline.setAttribute("stroke-width", "2.5");
     polyline.setAttribute("stroke-linejoin", "round");
     svg.appendChild(polyline);
 
+    const ghostLineShadow = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    ghostLineShadow.setAttribute("fill", "none");
+    ghostLineShadow.setAttribute("stroke", "rgba(0,0,0,0.6)");
+    ghostLineShadow.setAttribute("stroke-width", "5");
+    ghostLineShadow.setAttribute("stroke-dasharray", "6 6");
+    ghostLineShadow.setAttribute("display", "none");
+    svg.appendChild(ghostLineShadow);
+
     const ghostLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
     ghostLine.setAttribute("fill", "none");
-    ghostLine.setAttribute("stroke", "rgba(255,255,255,0.7)");
+    ghostLine.setAttribute("stroke", color);
     ghostLine.setAttribute("stroke-width", "2");
     ghostLine.setAttribute("stroke-dasharray", "4 4");
     ghostLine.setAttribute("display", "none");
@@ -1551,9 +1571,9 @@ export class LeafletRenderer implements MapRenderer {
 
     const firstVertexCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
     firstVertexCircle.setAttribute("r", "8");
-    firstVertexCircle.setAttribute("fill", "rgba(255,255,255,0.5)");
-    firstVertexCircle.setAttribute("stroke", "white");
-    firstVertexCircle.setAttribute("stroke-width", "2");
+    firstVertexCircle.setAttribute("fill", color + "55");
+    firstVertexCircle.setAttribute("stroke", color);
+    firstVertexCircle.setAttribute("stroke-width", "2.5");
     firstVertexCircle.setAttribute("display", "none");
     svg.appendChild(firstVertexCircle);
 
@@ -1579,25 +1599,25 @@ export class LeafletRenderer implements MapRenderer {
         this.map.latLngToContainerPoint(this.armaToLatLng(v)),
       );
 
-      // Update polyline
-      if (screenPts.length >= 2) {
-        const pts = screenPts.map((p) => `${p.x},${p.y}`).join(" ");
-        polyline.setAttribute("points", pts);
-      } else if (screenPts.length === 1) {
-        polyline.setAttribute("points", "");
-      } else {
-        polyline.setAttribute("points", "");
-      }
+      // Update polylines (shadow + color)
+      const ptsStr = screenPts.length >= 2
+        ? screenPts.map((p) => `${p.x},${p.y}`).join(" ")
+        : "";
+      polylineShadow.setAttribute("points", ptsStr);
+      polyline.setAttribute("points", ptsStr);
 
-      // Update ghost line (last vertex → cursor)
+      // Update ghost lines (shadow + color)
       if (screenPts.length >= 1 && cursorPt) {
         const last = screenPts[screenPts.length - 1];
-        ghostLine.setAttribute("x1", String(last.x));
-        ghostLine.setAttribute("y1", String(last.y));
-        ghostLine.setAttribute("x2", String(cursorPt.x));
-        ghostLine.setAttribute("y2", String(cursorPt.y));
-        ghostLine.setAttribute("display", "");
+        for (const el of [ghostLineShadow, ghostLine]) {
+          el.setAttribute("x1", String(last.x));
+          el.setAttribute("y1", String(last.y));
+          el.setAttribute("x2", String(cursorPt.x));
+          el.setAttribute("y2", String(cursorPt.y));
+          el.setAttribute("display", "");
+        }
       } else {
+        ghostLineShadow.setAttribute("display", "none");
         ghostLine.setAttribute("display", "none");
       }
 
@@ -1614,9 +1634,11 @@ export class LeafletRenderer implements MapRenderer {
 
     /** Close the polygon: fire onComplete and clean up. */
     const closePolygon = (): void => {
+      console.debug("[draw] polygon closed, vertex count:", this._drawVertices.length);
       const cb = this._drawCallbacks;
       const verts = [...this._drawVertices];
       this.disableDrawMode();
+      console.debug("[draw] calling onComplete with verts:", verts);
       cb?.onComplete(verts);
     };
 

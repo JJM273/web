@@ -23,7 +23,7 @@ interface Props {
     polygon: ArmaCoord[];
   }) => void;
   onCancel: () => void;
-  onDrawRegion: () => void;
+  onDrawRegion: (color: string) => void;
   currentFrame: Accessor<number>;
   endFrame: Accessor<number>;
   isDrawing: Accessor<boolean>;
@@ -84,7 +84,14 @@ export function ActionCreationToolbar(props: Props): JSX.Element {
   return (
     <div class={styles.focusToolbarRow}>
       <div class={styles.focusToolbarLeft}>
-        <span class={styles.focusToolbarLabel}>New Action</span>
+        <span class={styles.focusToolbarLabel}>
+          New Action
+          {props.isDrawing() && (
+            <span style={{ color: "var(--text-muted)", "font-weight": "normal" }}>
+              {" — Drawing Region (dblclick or click start to close, Esc to cancel)"}
+            </span>
+          )}
+        </span>
 
         {/* Label input */}
         <input
@@ -133,7 +140,7 @@ export function ActionCreationToolbar(props: Props): JSX.Element {
         {/* Draw region */}
         <button
           class={styles.focusToolbarBtn}
-          onClick={props.onDrawRegion}
+          onClick={() => props.onDrawRegion(color())}
         >
           {drawRegionLabel()}
         </button>

@@ -5,6 +5,7 @@ import { useI18n } from "../../../hooks/useLocale";
 import { formatTime } from "../../../playback/time";
 import type { TimeMode } from "../../../playback/time";
 import type { ActionDefinition } from "../../../data/types";
+import type { ArmaCoord } from "../../../utils/coordinates";
 import {
   MapIcon,
   PlayIcon,
@@ -24,7 +25,19 @@ import {
 import { TimelineScrubber } from "./TimelineScrubber";
 import type { FocusRange } from "./FocusToolbar";
 import { FocusToolbar } from "./FocusToolbar";
+import { ActionCreationToolbar } from "./ActionCreationToolbar";
 import styles from "./BottomBar.module.css";
+
+interface ActionCreationProps {
+  show: Accessor<boolean>;
+  isDrawing: Accessor<boolean>;
+  drawnPolygon: Accessor<ArmaCoord[] | null>;
+  onDrawRegion: (color: string) => void;
+  onSave: (data: { label: string; color: string; inFrame: number; outFrame: number; polygon: ArmaCoord[] }) => void;
+  onCancel: () => void;
+  onRegisterShortcutHandlers?: (handlers: { setIn: () => void; setOut: () => void }) => void;
+  onUnregisterShortcutHandlers?: () => void;
+}
 
 export interface BottomBarProps {
   panelOpen: Accessor<boolean>;
@@ -49,6 +62,8 @@ export interface BottomBarProps {
   actions?: Accessor<ActionDefinition[]>;
   onActionClick?: (action: ActionDefinition) => void;
   onNewAction?: () => void;
+  // Action creation toolbar
+  actionCreation?: ActionCreationProps;
 }
 
 const SPEEDS = [1, 2, 5, 10, 20, 60];
@@ -87,6 +102,23 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
           onClear={props.onClearFocus}
           onCancel={props.onCancelFocus}
           onSave={props.onSaveFocus}
+        />
+      </Show>
+
+      {/* Action Creation Toolbar */}
+      <Show when={props.actionCreation?.show()}>
+        <ActionCreationToolbar
+          onSave={props.actionCreation!.onSave}
+          onCancel={props.actionCreation!.onCancel}
+          onDrawRegion={props.actionCreation!.onDrawRegion}
+          currentFrame={() => engine.currentFrame()}
+          endFrame={() => engine.endFrame()}
+          isDrawing={props.actionCreation!.isDrawing}
+          polygonSet={() => props.actionCreation!.drawnPolygon() !== null}
+          drawnPolygon={props.actionCreation!.drawnPolygon}
+          actionCount={() => props.actions?.()?.length ?? 0}
+          onRegisterShortcutHandlers={props.actionCreation?.onRegisterShortcutHandlers}
+          onUnregisterShortcutHandlers={props.actionCreation?.onUnregisterShortcutHandlers}
         />
       </Show>
 

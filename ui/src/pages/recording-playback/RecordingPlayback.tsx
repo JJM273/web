@@ -29,7 +29,6 @@ import { FollowIndicator } from "./components/FollowIndicator";
 import { Hint, showHint, hintMessage, hintVisible } from "./components/Hint";
 import { BlacklistIndicator } from "./components/BlacklistIndicator";
 import type { FocusRange } from "./components/FocusToolbar";
-import { ActionCreationToolbar } from "./components/ActionCreationToolbar";
 import { ActionEditPanel } from "./components/ActionEditPanel";
 import { ActionPolygonLayer } from "./components/ActionPolygonLayer";
 import {
@@ -58,8 +57,7 @@ export function RecordingPlayback(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation<LocationState>();
   const { t } = useI18n();
-  const { authenticated } = useAuth();
-  const isAdmin = () => true; // TODO: restore to useAuth isAdmin once admin auth is verified
+  const { authenticated, isAdmin } = useAuth();
   const api = new ApiClient();
   const rendererParam = new URLSearchParams(window.location.search).get("renderer");
   const renderer: MapRenderer = rendererParam === "dom"
@@ -216,10 +214,11 @@ export function RecordingPlayback(): JSX.Element {
   // Sync editing state to shortcuts module + adjust bottom bar height
   createEffect(() => {
     const editing = editingFocus();
+    const creating = showCreationToolbar();
     setEditingFocusForShortcuts(editing);
     document.documentElement.style.setProperty(
       "--pb-bottom-height",
-      editing ? "162px" : "126px",
+      (editing || creating) ? "162px" : "126px",
     );
   });
 
@@ -292,6 +291,7 @@ export function RecordingPlayback(): JSX.Element {
   };
 
   const onPolygonComplete = (polygon: ArmaCoord[]): void => {
+    console.debug("[action] polygon complete, verts:", polygon.length, polygon);
     setDrawnPolygon(polygon);
     setIsDrawing(false);
   };
@@ -313,21 +313,24 @@ export function RecordingPlayback(): JSX.Element {
     setDrawnPolygon(null);
   };
 
+  const ACTION_COLOR_PALETTE = ["#e74c3c","#3498db","#2ecc71","#f39c12","#9b59b6","#1abc9c","#e67e22","#e91e63"];
+
   const handleNewAction = (): void => {
     setDrawnPolygon(null);
-    setIsDrawing(false);
     setShowCreationToolbar(true);
     const lr = getLeafletRenderer();
     if (lr) {
-      lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel);
+      const initialColor = ACTION_COLOR_PALETTE[actions().length % ACTION_COLOR_PALETTE.length];
+      lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel, initialColor);
+      setIsDrawing(true);
     }
   };
 
-  const handleDrawRegion = (): void => {
+  const handleDrawRegion = (color: string): void => {
     if (!isDrawing()) {
       const lr = getLeafletRenderer();
       if (lr) {
-        lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel);
+        lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel, color);
         setIsDrawing(true);
       }
     }
@@ -481,30 +484,6 @@ export function RecordingPlayback(): JSX.Element {
           />
         </Show>
 
-        {/* Action creation toolbar (above the bottom bar when active) */}
-        <Show when={showCreationToolbar()}>
-          <ActionCreationToolbar
-            onSave={(data) => { void handleSaveAction(data); }}
-            onCancel={handleCreationDrawCancel}
-            onDrawRegion={handleDrawRegion}
-            currentFrame={() => engine.currentFrame()}
-            endFrame={() => engine.endFrame()}
-            isDrawing={isDrawing}
-            polygonSet={() => drawnPolygon() !== null}
-            drawnPolygon={drawnPolygon}
-            actionCount={() => actions().length}
-            onRegisterShortcutHandlers={(handlers) => {
-              setActionCreationShortcutCallbacks({
-                onSetIn: handlers.setIn,
-                onSetOut: handlers.setOut,
-              });
-            }}
-            onUnregisterShortcutHandlers={() => {
-              setActionCreationShortcutCallbacks({});
-            }}
-          />
-        </Show>
-
         <BottomBar
           panelOpen={leftPanelVisible}
           onTogglePanel={() => setLeftPanelVisible((v) => !v)}
@@ -526,6 +505,23 @@ export function RecordingPlayback(): JSX.Element {
           actions={actions}
           onActionClick={(a) => engine.seekTo(a.inFrame)}
           onNewAction={authenticated() ? handleNewAction : undefined}
+          actionCreation={{
+            show: showCreationToolbar,
+            isDrawing: isDrawing,
+            drawnPolygon: drawnPolygon,
+            onDrawRegion: handleDrawRegion,
+            onSave: (data) => { void handleSaveAction(data); },
+            onCancel: handleCreationDrawCancel,
+            onRegisterShortcutHandlers: (handlers) => {
+              setActionCreationShortcutCallbacks({
+                onSetIn: handlers.setIn,
+                onSetOut: handlers.setOut,
+              });
+            },
+            onUnregisterShortcutHandlers: () => {
+              setActionCreationShortcutCallbacks({});
+            },
+          }}
         />
         <MapControls />
 
