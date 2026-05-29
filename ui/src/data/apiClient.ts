@@ -160,12 +160,12 @@ interface RawActionStats {
   player_count: number;
   kills: number;
   deaths: number;
-  vehicles_destroyed: Record<string, number>;
-  vehicles_lost: Record<string, number>;
+  vehicles_destroyed: Record<string, number> | null;
+  vehicles_lost: Record<string, number> | null;
   rounds_fired: number;
-  entered_frame?: number;
-  exited_frame?: number;
-  primary_movement_type?: string;
+  entered_frame?: number | null;
+  exited_frame?: number | null;
+  primary_movement_type?: string | null;
 }
 
 interface RawActionDefinition {
@@ -178,7 +178,7 @@ interface RawActionDefinition {
   polygon: [number, number][];
   sort_order: number;
   status: ActionStatus;
-  computed_at?: string;
+  computed_at?: string | null;
   stats?: RawActionStats[];
 }
 
@@ -191,19 +191,19 @@ function mapActionStats(raw: RawActionStats): ActionStats {
     playerCount: raw.player_count,
     kills: raw.kills,
     deaths: raw.deaths,
-    vehiclesDestroyed: raw.vehicles_destroyed,
-    vehiclesLost: raw.vehicles_lost,
+    vehiclesDestroyed: raw.vehicles_destroyed ?? {},
+    vehiclesLost: raw.vehicles_lost ?? {},
     roundsFired: raw.rounds_fired,
-    enteredFrame: raw.entered_frame,
-    exitedFrame: raw.exited_frame,
-    primaryMovementType: raw.primary_movement_type,
+    enteredFrame: raw.entered_frame ?? undefined,
+    exitedFrame: raw.exited_frame ?? undefined,
+    primaryMovementType: raw.primary_movement_type ?? undefined,
   };
 }
 
 function mapActionDefinition(raw: RawActionDefinition): ActionDefinition {
   return {
     id: raw.id,
-    recordingId: raw.recording_id,
+    recordingId: String(raw.recording_id),
     label: raw.label,
     color: raw.color,
     inFrame: raw.in_frame,
@@ -211,7 +211,7 @@ function mapActionDefinition(raw: RawActionDefinition): ActionDefinition {
     polygon: raw.polygon as ActionDefinition["polygon"],
     sortOrder: raw.sort_order,
     status: raw.status,
-    computedAt: raw.computed_at,
+    computedAt: raw.computed_at ?? undefined,
     stats: raw.stats?.map(mapActionStats),
   };
 }
@@ -554,7 +554,7 @@ export class ApiClient {
    * GET {baseUrl}/api/v1/operations/{recordingId}/actions
    */
   async getActions(recordingId: string): Promise<ActionDefinition[]> {
-    const data = await this.fetchJson<RawActionDefinition[]>(
+    const data = await this.fetchJsonAuth<RawActionDefinition[]>(
       `${this.baseUrl}/api/v1/operations/${encodeURIComponent(recordingId)}/actions`,
     );
     return data.map(mapActionDefinition);

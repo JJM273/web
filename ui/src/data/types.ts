@@ -225,7 +225,7 @@ export interface ActionStats {
 
 export interface ActionDefinition {
   id: string;
-  recordingId: number;
+  recordingId: string;
   label: string;
   color: string;
   inFrame: number;
