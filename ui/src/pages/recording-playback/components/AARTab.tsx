@@ -1,7 +1,7 @@
-import { createMemo, For, Show } from "solid-js";
-import type { JSX } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
+import type { JSX, Accessor } from "solid-js";
 import { SIDE_COLORS_UI, SIDE_BG_COLORS } from "../../../config/sideColors";
-import type { Side } from "../../../data/types";
+import type { Side, ActionDefinition } from "../../../data/types";
 import { useEngine } from "../../../hooks/useEngine";
 import { useI18n } from "../../../hooks/useLocale";
 import { DownloadIcon } from "../../../components/Icons";
@@ -43,9 +43,27 @@ function mapToSortedEntries(m: Map<string, number>): [string, number][] {
   return Array.from(m.entries()).sort((a, b) => b[1] - a[1]);
 }
 
-export function AARTab(): JSX.Element {
+export interface AARTabProps {
+  actions?: Accessor<ActionDefinition[]>;
+  isAdmin?: Accessor<boolean>;
+  onEditAction?: (action: ActionDefinition) => void;
+}
+
+export function AARTab(props: AARTabProps): JSX.Element {
   const engine = useEngine();
   const { t } = useI18n();
+
+  // Collapsible state for each action section (keyed by action id)
+  const [expandedActions, setExpandedActions] = createSignal<Set<string>>(new Set());
+
+  function toggleAction(id: string): void {
+    setExpandedActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   const endFrame = createMemo(() => engine.endFrame());
   const info = createMemo(() => engine.missionInfo);
@@ -218,7 +236,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
 
         {/* Mission header */}
         <Show when={info()}>
-          {(mi: () => { (): any; new(): any; missionName: any; worldName: any; missionAuthor: any; endFrame: number; captureDelayMs: number; }) => (
+          {(mi) => (
             <div style={{ "background": "rgba(255,255,255,0.03)", "border-radius": "8px", padding: "10px 12px", "border": "1px solid rgba(255,255,255,0.06)" }}>
               <div style={{ "font-family": "var(--font-mono)", "font-size": "13px", "font-weight": "700", color: "var(--text-primary)", "margin-bottom": "4px" }}>
                 {mi().missionName}
@@ -250,7 +268,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
                 <span style={{ "text-align": "right" }}>VL</span>
               </div>
               <For each={sideRows()}>
-                {(r: { side: string | number; total: any; deaths: number; kills: number; vehiclesDestroyed: number; vehiclesLost: number; }) => (
+                {(r) => (
                   <div style={{ display: "grid", "grid-template-columns": "1fr 40px 40px 40px 40px 40px", gap: "4px", padding: "6px 4px", background: SIDE_BG_COLORS[r.side], "border-radius": "5px", "border": `1px solid ${SIDE_COLORS_UI[r.side]}20`, "font-family": "var(--font-mono)", "font-size": "11px" }}>
                     <span style={{ color: SIDE_COLORS_UI[r.side], "font-weight": "700" }}>{SIDE_LABELS[r.side]}</span>
                     <span style={{ "text-align": "right", color: "var(--text-secondary)" }}>{r.total}</span>
@@ -282,10 +300,10 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
             <div class={styles.statsLabel}>{t("by_group")}</div>
             <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "2px" }}>
               <For each={SIDES}>
-                {(side: string | number) => {
+                {(side) => {
                   const sideGroups = groupStats()
-                    .filter((g: { side: any; }) => g.side === side)
-                    .sort((a: { kills: number; }, b: { kills: number; }) => b.kills - a.kills);
+                    .filter((g) => g.side === side)
+                    .sort((a, b) => b.kills - a.kills);
                   return (
                     <Show when={sideGroups.length > 0}>
                       <div style={{ "margin-bottom": "6px" }}>
@@ -325,7 +343,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
             <div class={styles.statsLabel}>{t("equipment")}</div>
             <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "6px" }}>
               <For each={SIDES}>
-                {(side: string | number) => {
+                {(side) => {
                   const eq = equipLosses().get(side);
                   if (!eq || (eq.destroyed.size === 0 && eq.lost_combat.size === 0 && eq.lost_captured.size === 0 && eq.captured.size === 0)) return null;
                   return (
@@ -383,6 +401,239 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
             {t("export_aar")}
           </button>
         </div>
+
+        {/* Action sections */}
+        <Show when={(props.actions?.() ?? []).length > 0}>
+          <div>
+            <div class={styles.statsLabel}>Actions</div>
+            <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "4px" }}>
+              <For each={props.actions?.() ?? []}>
+                {(action) => {
+                  const isExpanded = () => expandedActions().has(action.id);
+                  return (
+                    <div
+                      style={{
+                        background: "rgba(255,255,255,0.03)",
+                        "border-radius": "6px",
+                        border: `1px solid ${action.color}30`,
+                        overflow: "hidden",
+                      }}
+                    >
+                      {/* Header row */}
+                      <div
+                        style={{
+                          display: "flex",
+                          "align-items": "center",
+                          gap: "6px",
+                          padding: "6px 8px",
+                          cursor: "pointer",
+                          "user-select": "none",
+                        }}
+                        onClick={() => toggleAction(action.id)}
+                      >
+                        {/* Color dot */}
+                        <span
+                          style={{
+                            width: "8px",
+                            height: "8px",
+                            "border-radius": "50%",
+                            background: action.color,
+                            "flex-shrink": "0",
+                          }}
+                        />
+                        {/* Label */}
+                        <span
+                          style={{
+                            flex: "1",
+                            "font-family": "var(--font-mono)",
+                            "font-size": "11px",
+                            "font-weight": "600",
+                            color: "var(--text-primary)",
+                            overflow: "hidden",
+                            "text-overflow": "ellipsis",
+                            "white-space": "nowrap",
+                          }}
+                        >
+                          {action.label}
+                        </span>
+                        {/* Frame range */}
+                        <span
+                          style={{
+                            "font-family": "var(--font-mono)",
+                            "font-size": "9px",
+                            color: "var(--text-dimmest)",
+                            "white-space": "nowrap",
+                          }}
+                        >
+                          {action.inFrame}–{action.outFrame}
+                        </span>
+                        {/* Status indicator */}
+                        <Show when={action.status === "pending"}>
+                          <span
+                            style={{
+                              "font-family": "var(--font-mono)",
+                              "font-size": "9px",
+                              color: "var(--text-dimmest)",
+                              "font-style": "italic",
+                            }}
+                          >
+                            Computing...
+                          </span>
+                        </Show>
+                        <Show when={action.status === "failed"}>
+                          <span
+                            style={{
+                              "font-family": "var(--font-mono)",
+                              "font-size": "9px",
+                              color: "var(--accent-danger)",
+                            }}
+                          >
+                            Failed
+                          </span>
+                        </Show>
+                        {/* Edit button (admin only) */}
+                        <Show when={props.isAdmin?.() && props.onEditAction}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              props.onEditAction!(action);
+                            }}
+                            title="Edit action"
+                            style={{
+                              "flex-shrink": "0",
+                              height: "18px",
+                              padding: "0 6px",
+                              "border-radius": "3px",
+                              border: "1px solid rgba(255,255,255,0.08)",
+                              background: "var(--bg-interactive)",
+                              color: "var(--text-dimmer)",
+                              cursor: "pointer",
+                              "font-size": "9px",
+                              "font-family": "var(--font-mono)",
+                            }}
+                          >
+                            Edit
+                          </button>
+                        </Show>
+                        <Show when={action.status === "failed" && props.isAdmin?.() && props.onEditAction}>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              props.onEditAction!(action);
+                            }}
+                            title="Retry action computation"
+                            style={{
+                              "flex-shrink": "0",
+                              height: "18px",
+                              padding: "0 6px",
+                              "border-radius": "3px",
+                              border: "1px solid rgba(231,76,60,0.25)",
+                              background: "rgba(231,76,60,0.1)",
+                              color: "#e74c3c",
+                              cursor: "pointer",
+                              "font-size": "9px",
+                              "font-family": "var(--font-mono)",
+                            }}
+                          >
+                            Retry
+                          </button>
+                        </Show>
+                        {/* Expand chevron */}
+                        <span
+                          style={{
+                            "font-size": "9px",
+                            color: "var(--text-dimmest)",
+                            transition: "transform 0.15s",
+                            transform: isExpanded() ? "rotate(90deg)" : "rotate(0deg)",
+                          }}
+                        >
+                          ▶
+                        </span>
+                      </div>
+
+                      {/* Expanded stats */}
+                      <Show when={isExpanded()}>
+                        <div style={{ "border-top": "1px solid rgba(255,255,255,0.05)", padding: "6px 8px", display: "flex", "flex-direction": "column", gap: "4px" }}>
+                          <Show
+                            when={(action.stats ?? []).length > 0}
+                            fallback={
+                              <span style={{ "font-family": "var(--font-mono)", "font-size": "10px", color: "var(--text-dimmest)", "font-style": "italic" }}>
+                                {action.status === "pending" ? "Computing stats..." : action.status === "failed" ? "Computation failed." : "No data."}
+                              </span>
+                            }
+                          >
+                            <For each={action.stats ?? []}>
+                              {(stat) => {
+                                const side = stat.side as Side;
+                                return (
+                                <div
+                                  style={{
+                                    background: SIDE_BG_COLORS[side] ?? "rgba(255,255,255,0.02)",
+                                    "border-radius": "5px",
+                                    border: `1px solid ${SIDE_COLORS_UI[side] ?? "rgba(255,255,255,0.08)"}20`,
+                                    padding: "6px 8px",
+                                  }}
+                                >
+                                  {/* Group name + side badge */}
+                                  <div style={{ display: "flex", "align-items": "center", gap: "6px", "margin-bottom": "4px" }}>
+                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "11px", "font-weight": "700", color: SIDE_COLORS_UI[side] ?? "var(--text-primary)", flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                                      {stat.groupName || t("ungrouped")}
+                                    </span>
+                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "9px", color: SIDE_COLORS_UI[side] ?? "var(--text-dimmest)", "font-weight": "700" }}>
+                                      {SIDE_LABELS[side] ?? stat.side}
+                                    </span>
+                                  </div>
+                                  {/* Stats grid */}
+                                  <div style={{ display: "grid", "grid-template-columns": "repeat(3, 1fr)", gap: "3px", "font-family": "var(--font-mono)", "font-size": "10px" }}>
+                                    <div>
+                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>K / D</div>
+                                      <div style={{ color: "var(--text-secondary)" }}>{stat.kills} / {stat.deaths}</div>
+                                    </div>
+                                    <div>
+                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Units / Players</div>
+                                      <div style={{ color: "var(--text-secondary)" }}>{stat.unitCount} / {stat.playerCount}</div>
+                                    </div>
+                                    <div>
+                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Rounds</div>
+                                      <div style={{ color: "var(--text-secondary)" }}>{stat.roundsFired}</div>
+                                    </div>
+                                    <Show when={stat.vehiclesDestroyed && Object.keys(stat.vehiclesDestroyed).length > 0}>
+                                      <div style={{ "grid-column": "span 3" }}>
+                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Veh. Destroyed</div>
+                                        <div style={{ color: "var(--accent-danger)" }}>
+                                          {Object.entries(stat.vehiclesDestroyed).map(([t, c]) => `${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}`).join(", ")}
+                                        </div>
+                                      </div>
+                                    </Show>
+                                    <Show when={stat.vehiclesLost && Object.keys(stat.vehiclesLost).length > 0}>
+                                      <div style={{ "grid-column": "span 3" }}>
+                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Veh. Lost</div>
+                                        <div style={{ color: "var(--accent-warning)" }}>
+                                          {Object.entries(stat.vehiclesLost).map(([t, c]) => `${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}`).join(", ")}
+                                        </div>
+                                      </div>
+                                    </Show>
+                                    <Show when={stat.primaryMovementType}>
+                                      <div style={{ "grid-column": "span 3" }}>
+                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Movement</div>
+                                        <div style={{ color: "var(--text-secondary)" }}>{stat.primaryMovementType}</div>
+                                      </div>
+                                    </Show>
+                                  </div>
+                                </div>
+                                );
+                              }}
+                            </For>
+                          </Show>
+                        </div>
+                      </Show>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+        </Show>
 
       </div>
     </div>

@@ -6,6 +6,7 @@ import { UnitsTab } from "./UnitsTab";
 import { EventsTab } from "./EventsTab";
 import { StatsTab } from "./StatsTab";
 import { AARTab } from "./AARTab";
+import type { ActionDefinition } from "../../../data/types";
 import styles from "./SidePanel.module.css";
 
 export interface SidePanelProps {
@@ -15,6 +16,8 @@ export interface SidePanelProps {
   markerCounts?: Accessor<Map<number, number>>;
   isAdmin?: Accessor<boolean>;
   onToggleBlacklist?: (playerEntityId: number) => void;
+  actions?: Accessor<ActionDefinition[]>;
+  onEditAction?: (action: ActionDefinition) => void;
 }
 
 export function SidePanel(props: SidePanelProps): JSX.Element {
@@ -60,7 +63,11 @@ export function SidePanel(props: SidePanelProps): JSX.Element {
           <StatsTab />
         </Match>
         <Match when={props.activeTab() === "aar"}>
-          <AARTab />
+          <AARTab
+            actions={props.actions}
+            isAdmin={props.isAdmin}
+            onEditAction={props.onEditAction}
+          />
         </Match>
       </Switch>
 

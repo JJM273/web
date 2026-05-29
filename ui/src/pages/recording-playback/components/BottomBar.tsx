@@ -4,6 +4,7 @@ import { useEngine } from "../../../hooks/useEngine";
 import { useI18n } from "../../../hooks/useLocale";
 import { formatTime } from "../../../playback/time";
 import type { TimeMode } from "../../../playback/time";
+import type { ActionDefinition } from "../../../data/types";
 import {
   MapIcon,
   PlayIcon,
@@ -44,6 +45,10 @@ export interface BottomBarProps {
   onClearFocus: () => void;
   onCancelFocus: () => void;
   onSaveFocus: () => void;
+  // Action definition props
+  actions?: Accessor<ActionDefinition[]>;
+  onActionClick?: (action: ActionDefinition) => void;
+  onNewAction?: () => void;
 }
 
 const SPEEDS = [1, 2, 5, 10, 20, 60];
@@ -68,6 +73,8 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
           focusDraft={props.focusDraft}
           onDraftChange={props.onDraftChange}
           constrainToFocus={props.constrainToFocus}
+          actions={props.actions}
+          onActionClick={props.onActionClick}
         />
       </div>
 
@@ -176,6 +183,16 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
               title="Edit focus range"
             >
               <ScissorsIcon size={12} /> Focus
+            </button>
+          </Show>
+
+          <Show when={props.isAdmin() && props.onNewAction && !props.editingFocus()}>
+            <button
+              class={styles.focusBtn}
+              onClick={props.onNewAction}
+              title="Create new action region"
+            >
+              + Action
             </button>
           </Show>
 

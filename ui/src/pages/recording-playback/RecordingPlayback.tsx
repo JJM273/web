@@ -1,7 +1,8 @@
 import { onMount, onCleanup, createSignal, createMemo, createEffect, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { useParams, useNavigate, useLocation } from "@solidjs/router";
-import type { WorldConfig } from "../../data/types";
+import type { WorldConfig, ActionDefinition } from "../../data/types";
+import type { ArmaCoord } from "../../utils/coordinates";
 import { ApiClient } from "../../data/apiClient";
 import { useAuth } from "../../hooks/useAuth";
 import { PlaybackEngine } from "../../playback/engine";
@@ -28,6 +29,9 @@ import { FollowIndicator } from "./components/FollowIndicator";
 import { Hint, showHint, hintMessage, hintVisible } from "./components/Hint";
 import { BlacklistIndicator } from "./components/BlacklistIndicator";
 import type { FocusRange } from "./components/FocusToolbar";
+import { ActionCreationToolbar } from "./components/ActionCreationToolbar";
+import { ActionEditPanel } from "./components/ActionEditPanel";
+import { ActionPolygonLayer } from "./components/ActionPolygonLayer";
 import {
   registerShortcuts,
   unregisterShortcuts,
@@ -37,6 +41,8 @@ import {
   setLeftPanelVisible,
   setEditingFocusForShortcuts,
   setFocusShortcutCallbacks,
+  setShowingCreationToolbar,
+  setActionCreationShortcutCallbacks,
 } from "./shortcuts";
 import { loadRecording } from "./loadRecording";
 import { useRenderBridge } from "./useRenderBridge";
@@ -77,6 +83,13 @@ export function RecordingPlayback(): JSX.Element {
   const [editingFocus, setEditingFocus] = createSignal(false);
   const [focusDraft, setFocusDraft] = createSignal<FocusRange | null>(null);
   const [showFullTimeline, setShowFullTimeline] = createSignal(false);
+
+  // ─── Action definition state ───
+  const [actions, setActions] = createSignal<ActionDefinition[]>([]);
+  const [isDrawing, setIsDrawing] = createSignal(false);
+  const [drawnPolygon, setDrawnPolygon] = createSignal<ArmaCoord[] | null>(null);
+  const [showCreationToolbar, setShowCreationToolbar] = createSignal(false);
+  const [editingAction, setEditingAction] = createSignal<ActionDefinition | null>(null);
 
   const locState = () => location.state as LocationState | undefined;
 
@@ -165,6 +178,9 @@ export function RecordingPlayback(): JSX.Element {
           engine.seekTo(rec.focusStart);
         }
 
+        // Fetch actions (non-fatal)
+        api.getActions(result.recordingId).then(setActions).catch(() => {});
+
         // Fetch marker blacklist (non-fatal)
         try {
           const ids = await api.getMarkerBlacklist(result.recordingId);
@@ -200,6 +216,11 @@ export function RecordingPlayback(): JSX.Element {
       "--pb-bottom-height",
       editing ? "130px" : "94px",
     );
+  });
+
+  // Sync creation toolbar visibility to shortcuts module
+  createEffect(() => {
+    setShowingCreationToolbar(showCreationToolbar());
   });
 
   // Clamp playback to focus range when constrained (not editing, not full timeline)
@@ -257,10 +278,166 @@ export function RecordingPlayback(): JSX.Element {
     setFocusDraft(null);
   };
 
+  // ─── Action definition handlers ───
+
+  /** Helper: get the LeafletRenderer instance for draw mode operations. */
+  const getLeafletRenderer = (): LeafletRenderer | null => {
+    if (renderer instanceof LeafletRenderer) return renderer;
+    return null;
+  };
+
+  const onPolygonComplete = (polygon: ArmaCoord[]): void => {
+    setDrawnPolygon(polygon);
+    setIsDrawing(false);
+  };
+
+  const onDrawCancel = (): void => {
+    setIsDrawing(false);
+    setDrawnPolygon(null);
+    setShowCreationToolbar(false);
+    setEditingAction(null);
+  };
+
+  const handleNewAction = (): void => {
+    setDrawnPolygon(null);
+    setIsDrawing(false);
+    setShowCreationToolbar(true);
+    const lr = getLeafletRenderer();
+    if (lr) {
+      lr.enableDrawMode(onPolygonComplete, onDrawCancel);
+    }
+  };
+
+  const handleDrawRegion = (): void => {
+    if (!isDrawing()) {
+      const lr = getLeafletRenderer();
+      if (lr) {
+        lr.enableDrawMode(onPolygonComplete, onDrawCancel);
+        setIsDrawing(true);
+      }
+    }
+  };
+
+  const pollActionStatus = (actionId: string): void => {
+    const rid = recordingId();
+    if (!rid) return;
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      if (attempts > 15) {
+        clearInterval(interval);
+        return;
+      }
+      api.getActions(rid).then((updated) => {
+        setActions(updated);
+        const action = updated.find((a) => a.id === actionId);
+        if (action && action.status !== "pending") {
+          clearInterval(interval);
+        }
+      }).catch(() => null);
+    }, 2000);
+  };
+
+  const handleSaveAction = async (data: { label: string; color: string; inFrame: number; outFrame: number; polygon: ArmaCoord[] }): Promise<void> => {
+    const rid = recordingId();
+    if (!rid) return;
+    try {
+      const created = await api.createAction(rid, {
+        label: data.label,
+        color: data.color,
+        inFrame: data.inFrame,
+        outFrame: data.outFrame,
+        polygon: data.polygon,
+      });
+      setActions((prev) => [...prev, created]);
+      setShowCreationToolbar(false);
+      setDrawnPolygon(null);
+      pollActionStatus(created.id);
+    } catch (e) {
+      console.error("Failed to create action:", e);
+    }
+  };
+
+  const handleEditAction = (action: ActionDefinition): void => {
+    setEditingAction(action);
+  };
+
+  const handleRedrawRegion = (): void => {
+    const lr = getLeafletRenderer();
+    if (lr) {
+      setDrawnPolygon(null);
+      lr.enableDrawMode(
+        (polygon) => {
+          setDrawnPolygon(polygon);
+          setIsDrawing(false);
+        },
+        onDrawCancel,
+      );
+      setIsDrawing(true);
+    }
+  };
+
+  const handleSaveEditedAction = async (updates: { label: string; color: string; inFrame: number; outFrame: number; polygon: ArmaCoord[] }): Promise<void> => {
+    const rid = recordingId();
+    const action = editingAction();
+    if (!rid || !action) return;
+    try {
+      await api.updateAction(rid, action.id, {
+        label: updates.label,
+        color: updates.color,
+        inFrame: updates.inFrame,
+        outFrame: updates.outFrame,
+        polygon: updates.polygon,
+      });
+      const updated = await api.getActions(rid);
+      setActions(updated);
+      setEditingAction(null);
+      setDrawnPolygon(null);
+      // Re-poll if newly pending
+      const refreshed = updated.find((a) => a.id === action.id);
+      if (refreshed && refreshed.status === "pending") {
+        pollActionStatus(action.id);
+      }
+    } catch (e) {
+      console.error("Failed to update action:", e);
+    }
+  };
+
+  const handleDeleteAction = async (): Promise<void> => {
+    const rid = recordingId();
+    const action = editingAction();
+    if (!rid || !action) return;
+    try {
+      await api.deleteAction(rid, action.id);
+      setActions((prev) => prev.filter((a) => a.id !== action.id));
+      setEditingAction(null);
+      setDrawnPolygon(null);
+    } catch (e) {
+      console.error("Failed to delete action:", e);
+    }
+  };
+
+  /** armaToScreen: converts Arma world coords to pixel offset within the map container. */
+  const armaToScreen = (coord: ArmaCoord): { x: number; y: number } => {
+    const lr = getLeafletRenderer();
+    if (lr) return lr.armaToScreen(coord);
+    return { x: 0, y: 0 };
+  };
+
   return (
     <EngineProvider engine={engine}>
       <RendererProvider renderer={renderer}>
+        {/* Map container (base layer) */}
         <MapContainer renderer={renderer} worldConfig={worldConfig()} />
+
+        {/* Action polygon overlay — positioned absolutely over the map */}
+        <Show when={actions().length > 0}>
+          <ActionPolygonLayer
+            actions={actions}
+            armaToScreen={armaToScreen}
+          />
+        </Show>
+
         <TopBar
           missionName={missionName}
           mapName={mapName}
@@ -281,8 +458,35 @@ export function RecordingPlayback(): JSX.Element {
             markerCounts={markerCounts}
             isAdmin={authenticated}
             onToggleBlacklist={toggleBlacklist}
+            actions={actions}
+            onEditAction={handleEditAction}
           />
         </Show>
+
+        {/* Action creation toolbar (above the bottom bar when active) */}
+        <Show when={showCreationToolbar()}>
+          <ActionCreationToolbar
+            onSave={(data) => { void handleSaveAction(data); }}
+            onCancel={onDrawCancel}
+            onDrawRegion={handleDrawRegion}
+            currentFrame={() => engine.currentFrame()}
+            endFrame={() => engine.endFrame()}
+            isDrawing={isDrawing}
+            polygonSet={() => drawnPolygon() !== null}
+            drawnPolygon={drawnPolygon}
+            actionCount={() => actions().length}
+            onRegisterShortcutHandlers={(handlers) => {
+              setActionCreationShortcutCallbacks({
+                onSetIn: handlers.setIn,
+                onSetOut: handlers.setOut,
+              });
+            }}
+            onUnregisterShortcutHandlers={() => {
+              setActionCreationShortcutCallbacks({});
+            }}
+          />
+        </Show>
+
         <BottomBar
           panelOpen={leftPanelVisible}
           onTogglePanel={() => setLeftPanelVisible((v) => !v)}
@@ -301,8 +505,27 @@ export function RecordingPlayback(): JSX.Element {
           onClearFocus={clearFocus}
           onCancelFocus={cancelFocus}
           onSaveFocus={saveFocus}
+          actions={actions}
+          onActionClick={(a) => engine.seekTo(a.inFrame)}
+          onNewAction={authenticated() ? handleNewAction : undefined}
         />
         <MapControls />
+
+        {/* Action edit panel (floating card over map) */}
+        <Show when={editingAction() !== null}>
+          <ActionEditPanel
+            action={editingAction()!}
+            onSave={(updates) => { void handleSaveEditedAction(updates); }}
+            onDelete={() => { void handleDeleteAction(); }}
+            onClose={() => { setEditingAction(null); setDrawnPolygon(null); }}
+            onDrawRegion={handleRedrawRegion}
+            currentFrame={() => engine.currentFrame()}
+            isDrawing={isDrawing}
+            polygonSet={() => drawnPolygon() !== null}
+            drawnPolygon={drawnPolygon}
+          />
+        </Show>
+
         <CounterDisplay />
         <AboutModal
           open={aboutOpen}

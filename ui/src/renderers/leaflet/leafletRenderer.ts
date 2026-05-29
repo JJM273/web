@@ -1753,6 +1753,17 @@ export class LeafletRenderer implements MapRenderer {
     };
   }
 
+  /**
+   * Convert an Arma world coordinate to a screen pixel position (container-relative).
+   * Used by overlay components (e.g. ActionPolygonLayer SVG) that are positioned
+   * absolutely over the map container.
+   */
+  armaToScreen(coord: ArmaCoord): { x: number; y: number } {
+    const ll = this.armaToLatLng(coord);
+    const pt = this.map.latLngToContainerPoint(ll);
+    return { x: pt.x, y: pt.y };
+  }
+
   disableDrawMode(): void {
     this._isDrawing = false;
 

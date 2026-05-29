@@ -1,4 +1,4 @@
-import { createSignal, For } from "solid-js";
+import { createSignal, For, onMount, onCleanup } from "solid-js";
 import type { Accessor, JSX } from "solid-js";
 import type { ArmaCoord } from "../../../utils/coordinates";
 import styles from "./BottomBar.module.css";
@@ -30,6 +30,9 @@ interface Props {
   polygonSet: Accessor<boolean>;
   drawnPolygon: Accessor<ArmaCoord[] | null>;
   actionCount: Accessor<number>;
+  /** Optional callbacks for external (keyboard shortcut) control of in/out frames. */
+  onRegisterShortcutHandlers?: (handlers: { setIn: () => void; setOut: () => void }) => void;
+  onUnregisterShortcutHandlers?: () => void;
 }
 
 function formatFrame(frame: number): string {
@@ -47,6 +50,18 @@ export function ActionCreationToolbar(props: Props): JSX.Element {
 
   const canSave = () =>
     props.polygonSet() && inFrame() < outFrame();
+
+  // Register shortcut handlers so the parent can trigger set-in/set-out via keyboard
+  onMount(() => {
+    props.onRegisterShortcutHandlers?.({
+      setIn: () => setInFrame(props.currentFrame()),
+      setOut: () => setOutFrame(props.currentFrame()),
+    });
+  });
+
+  onCleanup(() => {
+    props.onUnregisterShortcutHandlers?.();
+  });
 
   function handleSave() {
     const polygon = props.drawnPolygon();

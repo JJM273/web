@@ -26,6 +26,18 @@ export function setFocusShortcutCallbacks(cbs: typeof focusCallbacks): void {
   focusCallbacks = cbs;
 }
 
+// ─── Action creation toolbar state (synced from RecordingPlayback) ───
+
+export const [showingCreationToolbar, setShowingCreationToolbar] = createSignal(false);
+let actionCreationCallbacks: {
+  onSetIn?: () => void;
+  onSetOut?: () => void;
+} = {};
+
+export function setActionCreationShortcutCallbacks(cbs: typeof actionCreationCallbacks): void {
+  actionCreationCallbacks = cbs;
+}
+
 // ─── Shortcut handler ───
 
 let handler: ((e: KeyboardEvent) => void) | null = null;
@@ -141,12 +153,16 @@ export function registerShortcuts(engine: PlaybackEngine): void {
 
     switch (e.key) {
       case "i":
-        if (editingFocusForShortcuts()) {
+        if (showingCreationToolbar()) {
+          actionCreationCallbacks.onSetIn?.();
+        } else if (editingFocusForShortcuts()) {
           focusCallbacks.onSetIn?.();
         }
         break;
       case "o":
-        if (editingFocusForShortcuts()) {
+        if (showingCreationToolbar()) {
+          actionCreationCallbacks.onSetOut?.();
+        } else if (editingFocusForShortcuts()) {
           focusCallbacks.onSetOut?.();
         }
         break;
