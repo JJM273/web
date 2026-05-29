@@ -58,7 +58,7 @@ export function RecordingPlayback(): JSX.Element {
   const navigate = useNavigate();
   const location = useLocation<LocationState>();
   const { t } = useI18n();
-  const { authenticated } = useAuth();
+  const { authenticated, isAdmin } = useAuth();
   const api = new ApiClient();
   const rendererParam = new URLSearchParams(window.location.search).get("renderer");
   const renderer: MapRenderer = rendererParam === "dom"
@@ -218,7 +218,7 @@ export function RecordingPlayback(): JSX.Element {
     setEditingFocusForShortcuts(editing);
     document.documentElement.style.setProperty(
       "--pb-bottom-height",
-      editing ? "130px" : "94px",
+      editing ? "162px" : "126px",
     );
   });
 
@@ -473,7 +473,7 @@ export function RecordingPlayback(): JSX.Element {
             onTabChange={setActivePanelTab}
             blacklist={blacklist}
             markerCounts={markerCounts}
-            isAdmin={authenticated}
+            isAdmin={isAdmin}
             onToggleBlacklist={toggleBlacklist}
             actions={actions}
             onEditAction={handleEditAction}
@@ -515,7 +515,7 @@ export function RecordingPlayback(): JSX.Element {
           showFullTimeline={showFullTimeline}
           onToggleFullTimeline={() => setShowFullTimeline((v) => !v)}
           constrainToFocus={focusConstrained}
-          isAdmin={authenticated}
+          isAdmin={isAdmin}
           onStartFocusEdit={startFocusEdit}
           onSetIn={setFocusIn}
           onSetOut={setFocusOut}
