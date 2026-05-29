@@ -56,6 +56,9 @@ export function AARTab(props: AARTabProps): JSX.Element {
   // Collapsible state for each action section (keyed by action id)
   const [expandedActions, setExpandedActions] = createSignal<Set<string>>(new Set());
 
+  // Collapsible state for the per-group breakdown section (collapsed by default)
+  const [showGroupBreakdown, setShowGroupBreakdown] = createSignal(false);
+
   function toggleAction(id: string): void {
     setExpandedActions((prev) => {
       const next = new Set(prev);
@@ -297,43 +300,61 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
         {/* Per-group breakdown */}
         <Show when={groupStats().length > 0}>
           <div>
-            <div class={styles.statsLabel}>{t("by_group")}</div>
-            <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "2px" }}>
-              <For each={SIDES}>
-                {(side) => {
-                  const sideGroups = groupStats()
-                    .filter((g) => g.side === side)
-                    .sort((a, b) => b.kills - a.kills);
-                  return (
-                    <Show when={sideGroups.length > 0}>
-                      <div style={{ "margin-bottom": "6px" }}>
-                        <div style={{ display: "flex", "align-items": "center", gap: "5px", padding: "3px 0", "border-bottom": `1px solid ${SIDE_COLORS_UI[side]}30`, "margin-bottom": "3px" }}>
-                          <span style={{ width: "7px", height: "7px", "border-radius": "2px", background: SIDE_COLORS_UI[side], display: "inline-block", "flex-shrink": "0" }} />
-                          <span style={{ color: SIDE_COLORS_UI[side], "font-size": "10px", "font-family": "var(--font-mono)", "font-weight": "700" }}>
-                            {SIDE_LABELS[side]}
-                          </span>
-                        </div>
-                        <For each={sideGroups}>
-                          {(g: { groupName: any; playerCount: number; unitCount: number; kills: any; vehicleKills: any; deaths: any; }) => (
-                            <div style={{ display: "flex", "align-items": "center", gap: "4px", padding: "3px 6px", "font-family": "var(--font-mono)", "font-size": "11px" }}>
-                              <span style={{ flex: "1", color: "var(--text-secondary)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
-                                {g.groupName || t("ungrouped")}
-                              </span>
-                              <span style={{ color: "var(--text-dimmest)", "font-size": "10px", "min-width": "50px", "text-align": "right" }}>
-                                {g.playerCount}P/{g.unitCount - g.playerCount}AI
-                              </span>
-                              <span style={{ color: "var(--accent-danger)", "min-width": "28px", "text-align": "right" }}>K:{g.kills}</span>
-                              <span style={{ color: "var(--accent-primary)", "min-width": "28px", "text-align": "right" }}>VK:{g.vehicleKills}</span>
-                              <span style={{ color: "var(--accent-warning)", "min-width": "28px", "text-align": "right" }}>D:{g.deaths}</span>
-                            </div>
-                          )}
-                        </For>
-                      </div>
-                    </Show>
-                  );
+            {/* Collapsible header */}
+            <div
+              style={{ display: "flex", "align-items": "center", gap: "6px", cursor: "pointer", "user-select": "none" }}
+              onClick={() => setShowGroupBreakdown((v) => !v)}
+            >
+              <span class={styles.statsLabel} style={{ flex: "1", cursor: "pointer" }}>{t("by_group")}</span>
+              <span
+                style={{
+                  "font-size": "9px",
+                  color: "var(--text-dimmest)",
+                  transition: "transform 0.15s",
+                  transform: showGroupBreakdown() ? "rotate(90deg)" : "rotate(0deg)",
                 }}
-              </For>
+              >
+                ▶
+              </span>
             </div>
+            <Show when={showGroupBreakdown()}>
+              <div style={{ "margin-top": "8px", display: "flex", "flex-direction": "column", gap: "2px" }}>
+                <For each={SIDES}>
+                  {(side) => {
+                    const sideGroups = groupStats()
+                      .filter((g) => g.side === side)
+                      .sort((a, b) => b.kills - a.kills);
+                    return (
+                      <Show when={sideGroups.length > 0}>
+                        <div style={{ "margin-bottom": "6px" }}>
+                          <div style={{ display: "flex", "align-items": "center", gap: "5px", padding: "3px 0", "border-bottom": `1px solid ${SIDE_COLORS_UI[side]}30`, "margin-bottom": "3px" }}>
+                            <span style={{ width: "7px", height: "7px", "border-radius": "2px", background: SIDE_COLORS_UI[side], display: "inline-block", "flex-shrink": "0" }} />
+                            <span style={{ color: SIDE_COLORS_UI[side], "font-size": "10px", "font-family": "var(--font-mono)", "font-weight": "700" }}>
+                              {SIDE_LABELS[side]}
+                            </span>
+                          </div>
+                          <For each={sideGroups}>
+                            {(g: { groupName: any; playerCount: number; unitCount: number; kills: any; vehicleKills: any; deaths: any; }) => (
+                              <div style={{ display: "flex", "align-items": "center", gap: "4px", padding: "3px 6px", "font-family": "var(--font-mono)", "font-size": "11px" }}>
+                                <span style={{ flex: "1", color: "var(--text-secondary)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                                  {g.groupName || t("ungrouped")}
+                                </span>
+                                <span style={{ color: "var(--text-dimmest)", "font-size": "10px", "min-width": "50px", "text-align": "right" }}>
+                                  {g.playerCount}P/{g.unitCount - g.playerCount}AI
+                                </span>
+                                <span style={{ color: "var(--accent-danger)", "min-width": "28px", "text-align": "right" }}>K:{g.kills}</span>
+                                <span style={{ color: "var(--accent-primary)", "min-width": "28px", "text-align": "right" }}>VK:{g.vehicleKills}</span>
+                                <span style={{ color: "var(--accent-warning)", "min-width": "28px", "text-align": "right" }}>D:{g.deaths}</span>
+                              </div>
+                            )}
+                          </For>
+                        </div>
+                      </Show>
+                    );
+                  }}
+                </For>
+              </div>
+            </Show>
           </div>
         </Show>
 

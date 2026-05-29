@@ -91,6 +91,10 @@ export function RecordingPlayback(): JSX.Element {
   const [showCreationToolbar, setShowCreationToolbar] = createSignal(false);
   const [editingAction, setEditingAction] = createSignal<ActionDefinition | null>(null);
 
+  // ─── Interval leak prevention ───
+  const activeIntervals = new Set<ReturnType<typeof setInterval>>();
+  onCleanup(() => { activeIntervals.forEach(clearInterval); });
+
   const locState = () => location.state as LocationState | undefined;
 
   const mapName = createMemo(() => worldConfig()?.worldName ?? "");
@@ -291,11 +295,21 @@ export function RecordingPlayback(): JSX.Element {
     setIsDrawing(false);
   };
 
-  const onDrawCancel = (): void => {
+  /** Called when drawing is cancelled during action *creation* — closes the toolbar too. */
+  const handleCreationDrawCancel = (): void => {
+    const lr = getLeafletRenderer();
+    if (lr) lr.disableDrawMode();
     setIsDrawing(false);
     setDrawnPolygon(null);
     setShowCreationToolbar(false);
-    setEditingAction(null);
+  };
+
+  /** Called when drawing is cancelled during action *editing* — keeps the edit panel open. */
+  const handleEditDrawCancel = (): void => {
+    const lr = getLeafletRenderer();
+    if (lr) lr.disableDrawMode();
+    setIsDrawing(false);
+    setDrawnPolygon(null);
   };
 
   const handleNewAction = (): void => {
@@ -304,7 +318,7 @@ export function RecordingPlayback(): JSX.Element {
     setShowCreationToolbar(true);
     const lr = getLeafletRenderer();
     if (lr) {
-      lr.enableDrawMode(onPolygonComplete, onDrawCancel);
+      lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel);
     }
   };
 
@@ -312,7 +326,7 @@ export function RecordingPlayback(): JSX.Element {
     if (!isDrawing()) {
       const lr = getLeafletRenderer();
       if (lr) {
-        lr.enableDrawMode(onPolygonComplete, onDrawCancel);
+        lr.enableDrawMode(onPolygonComplete, handleCreationDrawCancel);
         setIsDrawing(true);
       }
     }
@@ -326,6 +340,7 @@ export function RecordingPlayback(): JSX.Element {
       attempts++;
       if (attempts > 15) {
         clearInterval(interval);
+        activeIntervals.delete(interval);
         return;
       }
       api.getActions(rid).then((updated) => {
@@ -333,9 +348,11 @@ export function RecordingPlayback(): JSX.Element {
         const action = updated.find((a) => a.id === actionId);
         if (action && action.status !== "pending") {
           clearInterval(interval);
+          activeIntervals.delete(interval);
         }
       }).catch(() => null);
     }, 2000);
+    activeIntervals.add(interval);
   };
 
   const handleSaveAction = async (data: { label: string; color: string; inFrame: number; outFrame: number; polygon: ArmaCoord[] }): Promise<void> => {
@@ -371,7 +388,7 @@ export function RecordingPlayback(): JSX.Element {
           setDrawnPolygon(polygon);
           setIsDrawing(false);
         },
-        onDrawCancel,
+        handleEditDrawCancel,
       );
       setIsDrawing(true);
     }
@@ -467,7 +484,7 @@ export function RecordingPlayback(): JSX.Element {
         <Show when={showCreationToolbar()}>
           <ActionCreationToolbar
             onSave={(data) => { void handleSaveAction(data); }}
-            onCancel={onDrawCancel}
+            onCancel={handleCreationDrawCancel}
             onDrawRegion={handleDrawRegion}
             currentFrame={() => engine.currentFrame()}
             endFrame={() => engine.endFrame()}
