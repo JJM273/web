@@ -1,5 +1,6 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, For } from "solid-js";
 import type { Accessor, JSX } from "solid-js";
+import type { ArmaCoord } from "../../../utils/coordinates";
 import styles from "./BottomBar.module.css";
 
 const COLOR_PALETTE = [
@@ -19,7 +20,7 @@ interface Props {
     color: string;
     inFrame: number;
     outFrame: number;
-    polygon: number[][];
+    polygon: ArmaCoord[];
   }) => void;
   onCancel: () => void;
   onDrawRegion: () => void;
@@ -27,7 +28,7 @@ interface Props {
   endFrame: Accessor<number>;
   isDrawing: Accessor<boolean>;
   polygonSet: Accessor<boolean>;
-  drawnPolygon: Accessor<number[][] | null>;
+  drawnPolygon: Accessor<ArmaCoord[] | null>;
   actionCount: Accessor<number>;
 }
 

@@ -1,6 +1,7 @@
-import { createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, For, on, Show } from "solid-js";
 import type { Accessor, JSX } from "solid-js";
 import type { ActionDefinition } from "../../../data/types";
+import type { ArmaCoord } from "../../../utils/coordinates";
 
 const COLOR_PALETTE = [
   "#e74c3c",
@@ -20,7 +21,7 @@ interface Props {
     color: string;
     inFrame: number;
     outFrame: number;
-    polygon: number[][];
+    polygon: ArmaCoord[];
   }) => void;
   onDelete: () => void;
   onClose: () => void;
@@ -28,7 +29,7 @@ interface Props {
   currentFrame: Accessor<number>;
   isDrawing: Accessor<boolean>;
   polygonSet: Accessor<boolean>;
-  drawnPolygon: Accessor<number[][] | null>;
+  drawnPolygon: Accessor<ArmaCoord[] | null>;
 }
 
 function formatFrame(frame: number): string {
@@ -42,6 +43,16 @@ export function ActionEditPanel(props: Props): JSX.Element {
   const [color, setColor] = createSignal(props.action.color);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
 
+  // Re-seed signals whenever the parent switches to a different action (by id).
+  // defer: true skips running on mount since signals are already seeded above.
+  createEffect(on(() => props.action.id, () => {
+    setLabel(props.action.label);
+    setInFrame(props.action.inFrame);
+    setOutFrame(props.action.outFrame);
+    setColor(props.action.color);
+    setConfirmDelete(false);
+  }, { defer: true }));
+
   const hasChanges = () =>
     label() !== props.action.label ||
     inFrame() !== props.action.inFrame ||
@@ -50,10 +61,10 @@ export function ActionEditPanel(props: Props): JSX.Element {
     props.polygonSet();
 
   function handleSave() {
-    // Use redrawn polygon if available, otherwise convert the existing ArmaCoord[] polygon
-    const polygon: number[][] = props.polygonSet() && props.drawnPolygon()
+    // Use redrawn polygon if available, otherwise keep the existing polygon
+    const polygon: ArmaCoord[] = props.polygonSet() && props.drawnPolygon()
       ? props.drawnPolygon()!
-      : props.action.polygon.map((coord) => Array.from(coord) as number[]);
+      : props.action.polygon;
 
     props.onSave({
       label: label(),

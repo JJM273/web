@@ -8,6 +8,23 @@ interface Props {
   armaToScreen: (coord: ArmaCoord) => { x: number; y: number };
 }
 
+function hexToRgba(hex: string, alpha: number): string {
+  // strip leading #
+  let c = hex.startsWith("#") ? hex.slice(1) : hex;
+  // expand 3-char shorthand to 6
+  if (c.length === 3) c = c.split("").map((x) => x + x).join("");
+  // strip alpha channel if 8-char
+  if (c.length === 8) c = c.slice(0, 6);
+  // 4-char: expand to 6 (skip alpha)
+  if (c.length === 4) c = c.slice(0, 3).split("").map((x) => x + x).join("");
+  if (c.length !== 6) return hex; // fallback: can't parse, use original
+  const r = parseInt(c.slice(0, 2), 16);
+  const g = parseInt(c.slice(2, 4), 16);
+  const b = parseInt(c.slice(4, 6), 16);
+  if (!Number.isFinite(r + g + b)) return hex; // fallback
+  return `rgba(${r},${g},${b},${alpha})`;
+}
+
 /**
  * SVG overlay that renders polygon outlines for all defined actions.
  * Positioned absolutely over the map, pointer-events none, z-index 400
@@ -45,20 +62,7 @@ export function ActionPolygonLayer(props: Props): JSX.Element {
           // Parse the color and build an rgba fill at 15% opacity
           const fillColor = () => {
             const c = action.color;
-            // Hex shorthand (#abc → #aabbcc) or full hex
-            if (c.startsWith("#")) {
-              let hex = c.slice(1);
-              if (hex.length === 3) {
-                hex = hex
-                  .split("")
-                  .map((ch) => ch + ch)
-                  .join("");
-              }
-              const r = parseInt(hex.slice(0, 2), 16);
-              const g = parseInt(hex.slice(2, 4), 16);
-              const b = parseInt(hex.slice(4, 6), 16);
-              return `rgba(${r},${g},${b},0.15)`;
-            }
+            if (c.startsWith("#")) return hexToRgba(c, 0.15);
             return c;
           };
 
