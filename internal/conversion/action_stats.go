@@ -145,6 +145,7 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 	}
 
 	// Unit counts and frame bounds
+	seenPlayerName := make(map[string]map[string]bool) // group key -> player name set
 	for eid := range participating {
 		ent, ok := entityByID[eid]
 		if !ok {
@@ -154,7 +155,15 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 		if ent.Type == "unit" {
 			gs.unitCount++
 			if ent.IsPlayer {
-				gs.playerCount++
+				gk := ent.Group + "|" + ent.Side
+				// don't double count respawning players
+				if seenPlayerName[gk] == nil {
+					seenPlayerName[gk] = make(map[string]bool)
+				}
+				if ent.Name == "" || !seenPlayerName[gk][ent.Name] {
+					seenPlayerName[gk][ent.Name] = true
+					gs.playerCount++
+				}
 			}
 		}
 
