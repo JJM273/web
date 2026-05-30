@@ -456,6 +456,7 @@ export function RecordingPlayback(): JSX.Element {
           <ActionPolygonLayer
             actions={actions}
             armaToScreen={armaToScreen}
+            mapVersion={getLeafletRenderer()?.mapVersion ?? (() => 0)}
           />
         </Show>
 

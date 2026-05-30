@@ -2,10 +2,12 @@ import { For } from "solid-js";
 import type { Accessor, JSX } from "solid-js";
 import type { ActionDefinition } from "../../../data/types";
 import type { ArmaCoord } from "../../../utils/coordinates";
+import { useEngine } from "../../../hooks/useEngine";
 
 interface Props {
   actions: Accessor<ActionDefinition[]>;
   armaToScreen: (coord: ArmaCoord) => { x: number; y: number };
+  mapVersion?: Accessor<number>;
 }
 
 function hexToRgba(hex: string, alpha: number): string {
@@ -26,15 +28,22 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 /**
- * SVG overlay that renders polygon outlines for all defined actions.
- * Positioned absolutely over the map, pointer-events none, z-index 400
- * (below the entity canvas but above tiles).
+ * SVG overlay that renders polygon outlines for actions active at the current playback frame.
+ * Positioned absolutely over the map, pointer-events none, z-index 400.
+ * Re-computes screen coordinates whenever the map moves (via mapVersion).
  */
 export function ActionPolygonLayer(props: Props): JSX.Element {
-  const visibleActions = () =>
-    props.actions().filter(
-      (a) => a.status === "ready" || a.status === "pending",
+  const engine = useEngine();
+
+  const visibleActions = () => {
+    const frame = engine.currentFrame();
+    return props.actions().filter(
+      (a) =>
+        (a.status === "ready" || a.status === "pending") &&
+        frame >= a.inFrame &&
+        frame <= a.outFrame,
     );
+  };
 
   return (
     <svg
@@ -51,15 +60,18 @@ export function ActionPolygonLayer(props: Props): JSX.Element {
     >
       <For each={visibleActions()}>
         {(action) => {
-          const pointsAttr = () =>
-            action.polygon
+          const pointsAttr = () => {
+            // Reading mapVersion creates a reactive dependency so polygons
+            // recompute screen coords whenever the map pans or zooms.
+            props.mapVersion?.();
+            return action.polygon
               .map((coord) => {
                 const { x, y } = props.armaToScreen(coord);
                 return `${x},${y}`;
               })
               .join(" ");
+          };
 
-          // Parse the color and build an rgba fill at 15% opacity
           const fillColor = () => {
             const c = action.color;
             if (c.startsWith("#")) return hexToRgba(c, 0.15);

@@ -333,7 +333,7 @@ export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
               {({ action, row }) => {
                 const leftPct = () => frameToPct(action.inFrame);
                 const widthPct = () => frameToPct(action.outFrame) - frameToPct(action.inFrame);
-                const topPx = row * 10 + 2;
+                const topPx = row * 7 + 1;
                 return (
                   <>
                     {/* Vertical start tick */}
@@ -354,6 +354,7 @@ export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
                         top: `${topPx + 2}px`,
                         background: action.color,
                       }}
+                      onPointerDown={(e) => e.stopPropagation()}
                       onClick={() => props.onActionClick?.(action)}
                       onMouseEnter={(e) => {
                         setHoveredAction(action);

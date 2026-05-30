@@ -139,6 +139,8 @@ export class LeafletRenderer implements MapRenderer {
   private readonly _setActiveStyleIndexSig: Setter<number>;
   private readonly _layerVisibility: Accessor<Record<string, boolean>>;
   private readonly _setLayerVisibility: Setter<Record<string, boolean>>;
+  private readonly _mapVersion: Accessor<number>;
+  private readonly _setMapVersion: Setter<number>;
   private hideMarkerPopups = false;
 
   private layers: Record<LayerGroupKey, L.LayerGroup> = {
@@ -208,9 +210,18 @@ export class LeafletRenderer implements MapRenderer {
     });
     this._layerVisibility = lv;
     this._setLayerVisibility = setLv;
+
+    const [mv, setMv] = createSignal(0);
+    this._mapVersion = mv;
+    this._setMapVersion = setMv;
   }
 
   // ==================== Lifecycle ====================
+
+  /** Reactive version counter that increments on every map move. Use as a dependency to recompute screen coordinates. */
+  get mapVersion(): Accessor<number> {
+    return this._mapVersion;
+  }
 
   init(container: HTMLElement, world: WorldConfig): void {
     this.world = world;
@@ -268,6 +279,7 @@ export class LeafletRenderer implements MapRenderer {
     this.map.on("click", (e: L.LeafletMouseEvent) => {
       this.fireEvent("click", this.latLngToArma(e.latlng));
     });
+    this.map.on("move", () => this._setMapVersion(this._mapVersion() + 1));
   }
 
   private initMapLibreMode(container: HTMLElement, world: WorldConfig): void {
