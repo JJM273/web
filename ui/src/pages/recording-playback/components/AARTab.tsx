@@ -55,12 +55,25 @@ export function AARTab(props: AARTabProps): JSX.Element {
 
   // Collapsible state for each action section (keyed by action id)
   const [expandedActions, setExpandedActions] = createSignal<Set<string>>(new Set());
+  // Equipment subsection expanded per action (default: expanded)
+  const [collapsedEquipment, setCollapsedEquipment] = createSignal<Set<string>>(new Set());
+  // Group detail subsection expanded per action (default: collapsed)
+  const [expandedGroups, setExpandedGroups] = createSignal<Set<string>>(new Set());
 
   // Collapsible state for the per-group breakdown section (collapsed by default)
   const [showGroupBreakdown, setShowGroupBreakdown] = createSignal(false);
 
   function toggleAction(id: string): void {
     setExpandedActions((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSet(signal: () => Set<string>, setter: (fn: (prev: Set<string>) => Set<string>) => void, id: string): void {
+    setter((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -574,7 +587,7 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
 
                       {/* Expanded stats */}
                       <Show when={isExpanded()}>
-                        <div style={{ "border-top": "1px solid rgba(255,255,255,0.05)", padding: "6px 8px", display: "flex", "flex-direction": "column", gap: "4px" }}>
+                        <div style={{ "border-top": "1px solid rgba(255,255,255,0.05)", padding: "6px 8px", display: "flex", "flex-direction": "column", gap: "6px" }}>
                           <Show
                             when={(action.stats ?? []).length > 0}
                             fallback={
@@ -583,68 +596,152 @@ ${eqSections || "<p>No vehicle losses recorded.</p>"}
                               </span>
                             }
                           >
-                            <For each={action.stats ?? []}>
-                              {(stat) => {
-                                const side = stat.side as Side;
-                                return (
-                                <div
-                                  style={{
-                                    background: SIDE_BG_COLORS[side] ?? "rgba(255,255,255,0.02)",
-                                    "border-radius": "5px",
-                                    border: `1px solid ${SIDE_COLORS_UI[side] ?? "rgba(255,255,255,0.08)"}20`,
-                                    padding: "6px 8px",
-                                  }}
-                                >
-                                  {/* Group name + side badge */}
-                                  <div style={{ display: "flex", "align-items": "center", gap: "6px", "margin-bottom": "4px" }}>
-                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "11px", "font-weight": "700", color: SIDE_COLORS_UI[side] ?? "var(--text-primary)", flex: "1", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
-                                      {stat.groupName || t("ungrouped")}
-                                    </span>
-                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "9px", color: SIDE_COLORS_UI[side] ?? "var(--text-dimmest)", "font-weight": "700" }}>
-                                      {SIDE_LABELS[side] ?? stat.side}
-                                    </span>
+                            {/* ── Side summary ── */}
+                            {(() => {
+                              // Aggregate stats per side
+                              const bySide = new Map<string, { kills: number; deaths: number; units: number; players: number; rounds: number }>();
+                              for (const stat of action.stats ?? []) {
+                                const s = bySide.get(stat.side) ?? { kills: 0, deaths: 0, units: 0, players: 0, rounds: 0 };
+                                s.kills += stat.kills;
+                                s.deaths += stat.deaths;
+                                s.units += stat.unitCount;
+                                s.players += stat.playerCount;
+                                s.rounds += stat.roundsFired;
+                                bySide.set(stat.side, s);
+                              }
+                              const sideEntries = SIDES
+                                .filter((s) => bySide.has(s))
+                                .map((s) => ({ side: s, ...bySide.get(s)! }));
+                              return (
+                                <div style={{ display: "flex", "flex-direction": "column", gap: "3px" }}>
+                                  <div style={{ display: "grid", "grid-template-columns": "1fr 36px 36px 36px 42px", gap: "4px", padding: "0 4px", "font-size": "8px", "font-family": "var(--font-mono)", color: "var(--text-dimmest)", "letter-spacing": "0.05em", "text-transform": "uppercase" }}>
+                                    <span>Side</span>
+                                    <span style={{ "text-align": "right" }}>K</span>
+                                    <span style={{ "text-align": "right" }}>D</span>
+                                    <span style={{ "text-align": "right" }}>Units</span>
+                                    <span style={{ "text-align": "right" }}>Rounds</span>
                                   </div>
-                                  {/* Stats grid */}
-                                  <div style={{ display: "grid", "grid-template-columns": "repeat(3, 1fr)", gap: "3px", "font-family": "var(--font-mono)", "font-size": "10px" }}>
-                                    <div>
-                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>K / D</div>
-                                      <div style={{ color: "var(--text-secondary)" }}>{stat.kills} / {stat.deaths}</div>
-                                    </div>
-                                    <div>
-                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Units / Players</div>
-                                      <div style={{ color: "var(--text-secondary)" }}>{stat.unitCount} / {stat.playerCount}</div>
-                                    </div>
-                                    <div>
-                                      <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Rounds</div>
-                                      <div style={{ color: "var(--text-secondary)" }}>{stat.roundsFired}</div>
-                                    </div>
-                                    <Show when={stat.vehiclesDestroyed && Object.keys(stat.vehiclesDestroyed).length > 0}>
-                                      <div style={{ "grid-column": "span 3" }}>
-                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Veh. Destroyed</div>
-                                        <div style={{ color: "var(--accent-danger)" }}>
-                                          {Object.entries(stat.vehiclesDestroyed).map(([t, c]) => `${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}`).join(", ")}
-                                        </div>
+                                  <For each={sideEntries}>
+                                    {(r) => (
+                                      <div style={{ display: "grid", "grid-template-columns": "1fr 36px 36px 36px 42px", gap: "4px", padding: "4px", background: SIDE_BG_COLORS[r.side] ?? "transparent", "border-radius": "4px", border: `1px solid ${SIDE_COLORS_UI[r.side] ?? "transparent"}20`, "font-family": "var(--font-mono)", "font-size": "10px" }}>
+                                        <span style={{ color: SIDE_COLORS_UI[r.side] ?? "var(--text-primary)", "font-weight": "700" }}>{SIDE_LABELS[r.side as Side] ?? r.side}</span>
+                                        <span style={{ "text-align": "right", color: r.kills > 0 ? "var(--accent-danger)" : "var(--text-dimmest)" }}>{r.kills}</span>
+                                        <span style={{ "text-align": "right", color: r.deaths > 0 ? "var(--accent-warning)" : "var(--text-dimmest)" }}>{r.deaths}</span>
+                                        <span style={{ "text-align": "right", color: "var(--text-secondary)" }}>{r.units}</span>
+                                        <span style={{ "text-align": "right", color: "var(--text-secondary)" }}>{r.rounds}</span>
                                       </div>
-                                    </Show>
-                                    <Show when={stat.vehiclesLost && Object.keys(stat.vehiclesLost).length > 0}>
-                                      <div style={{ "grid-column": "span 3" }}>
-                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Veh. Lost</div>
-                                        <div style={{ color: "var(--accent-warning)" }}>
-                                          {Object.entries(stat.vehiclesLost).map(([t, c]) => `${c}× ${VEHICLE_TYPE_LABELS[t] ?? t}`).join(", ")}
-                                        </div>
-                                      </div>
-                                    </Show>
-                                    <Show when={stat.primaryMovementType}>
-                                      <div style={{ "grid-column": "span 3" }}>
-                                        <div style={{ color: "var(--text-dimmest)", "font-size": "8px" }}>Movement</div>
-                                        <div style={{ color: "var(--text-secondary)" }}>{stat.primaryMovementType}</div>
-                                      </div>
-                                    </Show>
-                                  </div>
+                                    )}
+                                  </For>
                                 </div>
-                                );
-                              }}
-                            </For>
+                              );
+                            })()}
+
+                            {/* ── Equipment ── */}
+                            {(() => {
+                              // Aggregate vehicle losses per side
+                              const destroyed = new Map<string, Map<string, number>>();
+                              const lost = new Map<string, Map<string, number>>();
+                              for (const stat of action.stats ?? []) {
+                                if (!destroyed.has(stat.side)) destroyed.set(stat.side, new Map());
+                                if (!lost.has(stat.side)) lost.set(stat.side, new Map());
+                                for (const [vt, c] of Object.entries(stat.vehiclesDestroyed ?? {})) {
+                                  destroyed.get(stat.side)!.set(vt, (destroyed.get(stat.side)!.get(vt) ?? 0) + c);
+                                }
+                                for (const [vt, c] of Object.entries(stat.vehiclesLost ?? {})) {
+                                  lost.get(stat.side)!.set(vt, (lost.get(stat.side)!.get(vt) ?? 0) + c);
+                                }
+                              }
+                              const hasAny = [...destroyed.values()].some((m) => m.size > 0) || [...lost.values()].some((m) => m.size > 0);
+                              if (!hasAny) return null;
+                              const eqExpanded = () => !collapsedEquipment().has(action.id);
+                              return (
+                                <div>
+                                  <div
+                                    style={{ display: "flex", "align-items": "center", gap: "4px", cursor: "pointer", "user-select": "none", padding: "2px 0" }}
+                                    onClick={() => toggleSet(collapsedEquipment, setCollapsedEquipment, action.id)}
+                                  >
+                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "9px", "font-weight": "700", color: "var(--text-muted)", "text-transform": "uppercase", "letter-spacing": "0.06em", flex: "1" }}>Equipment</span>
+                                    <span style={{ "font-size": "8px", color: "var(--text-dimmest)", transition: "transform 0.15s", transform: eqExpanded() ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                  </div>
+                                  <Show when={eqExpanded()}>
+                                    <div style={{ display: "flex", "flex-direction": "column", gap: "3px", "margin-top": "3px" }}>
+                                      <For each={SIDES.filter((s) => (destroyed.get(s)?.size ?? 0) > 0 || (lost.get(s)?.size ?? 0) > 0)}>
+                                        {(side) => (
+                                          <div style={{ background: SIDE_BG_COLORS[side] ?? "transparent", "border-radius": "4px", padding: "5px 7px", border: `1px solid ${SIDE_COLORS_UI[side] ?? "transparent"}20` }}>
+                                            <div style={{ color: SIDE_COLORS_UI[side], "font-size": "9px", "font-family": "var(--font-mono)", "font-weight": "700", "margin-bottom": "3px" }}>{SIDE_LABELS[side]}</div>
+                                            <Show when={(destroyed.get(side)?.size ?? 0) > 0}>
+                                              <div style={{ "font-size": "10px", "font-family": "var(--font-mono)" }}>
+                                                <span style={{ color: "var(--accent-danger)", "font-weight": "600" }}>Destroyed: </span>
+                                                <span style={{ color: "var(--text-muted)" }}>
+                                                  {Array.from(destroyed.get(side)!.entries()).sort((a, b) => b[1] - a[1]).map(([vt, c]) => `${c}× ${VEHICLE_TYPE_LABELS[vt] ?? vt}`).join(", ")}
+                                                </span>
+                                              </div>
+                                            </Show>
+                                            <Show when={(lost.get(side)?.size ?? 0) > 0}>
+                                              <div style={{ "font-size": "10px", "font-family": "var(--font-mono)" }}>
+                                                <span style={{ color: "var(--accent-warning)", "font-weight": "600" }}>Lost: </span>
+                                                <span style={{ color: "var(--text-muted)" }}>
+                                                  {Array.from(lost.get(side)!.entries()).sort((a, b) => b[1] - a[1]).map(([vt, c]) => `${c}× ${VEHICLE_TYPE_LABELS[vt] ?? vt}`).join(", ")}
+                                                </span>
+                                              </div>
+                                            </Show>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              );
+                            })()}
+
+                            {/* ── Group detail (collapsible, collapsed by default) ── */}
+                            {(() => {
+                              const grpExpanded = () => expandedGroups().has(action.id);
+                              const statsBySide = SIDES.map((side) => ({
+                                side,
+                                stats: (action.stats ?? []).filter((s) => s.side === side),
+                              })).filter((x) => x.stats.length > 0);
+                              return (
+                                <div>
+                                  <div
+                                    style={{ display: "flex", "align-items": "center", gap: "4px", cursor: "pointer", "user-select": "none", padding: "2px 0" }}
+                                    onClick={() => toggleSet(expandedGroups, setExpandedGroups, action.id)}
+                                  >
+                                    <span style={{ "font-family": "var(--font-mono)", "font-size": "9px", "font-weight": "700", color: "var(--text-muted)", "text-transform": "uppercase", "letter-spacing": "0.06em", flex: "1" }}>Units by Group</span>
+                                    <span style={{ "font-size": "8px", color: "var(--text-dimmest)", transition: "transform 0.15s", transform: grpExpanded() ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                                  </div>
+                                  <Show when={grpExpanded()}>
+                                    <div style={{ display: "flex", "flex-direction": "column", gap: "4px", "margin-top": "3px" }}>
+                                      <For each={statsBySide}>
+                                        {({ side, stats: sideStats }) => (
+                                          <div>
+                                            <div style={{ display: "flex", "align-items": "center", gap: "5px", padding: "2px 0", "border-bottom": `1px solid ${SIDE_COLORS_UI[side]}30`, "margin-bottom": "3px" }}>
+                                              <span style={{ width: "6px", height: "6px", "border-radius": "2px", background: SIDE_COLORS_UI[side], display: "inline-block", "flex-shrink": "0" }} />
+                                              <span style={{ color: SIDE_COLORS_UI[side], "font-size": "9px", "font-family": "var(--font-mono)", "font-weight": "700" }}>{SIDE_LABELS[side]}</span>
+                                            </div>
+                                            <For each={sideStats}>
+                                              {(stat) => (
+                                                <div style={{ display: "grid", "grid-template-columns": "1fr 44px 36px 36px 36px", gap: "4px", padding: "3px 4px", "font-family": "var(--font-mono)", "font-size": "10px" }}>
+                                                  <span style={{ color: "var(--text-secondary)", overflow: "hidden", "text-overflow": "ellipsis", "white-space": "nowrap" }}>
+                                                    {stat.groupName || t("ungrouped")}
+                                                  </span>
+                                                  <span style={{ "text-align": "right", color: "var(--text-dimmest)", "font-size": "9px" }}>
+                                                    {stat.playerCount}P/{stat.unitCount - stat.playerCount}AI
+                                                  </span>
+                                                  <span style={{ "text-align": "right", color: stat.kills > 0 ? "var(--accent-danger)" : "var(--text-dimmest)" }}>K:{stat.kills}</span>
+                                                  <span style={{ "text-align": "right", color: stat.deaths > 0 ? "var(--accent-warning)" : "var(--text-dimmest)" }}>D:{stat.deaths}</span>
+                                                  <span style={{ "text-align": "right", color: "var(--text-dimmest)" }}>{stat.roundsFired}r</span>
+                                                </div>
+                                              )}
+                                            </For>
+                                          </div>
+                                        )}
+                                      </For>
+                                    </div>
+                                  </Show>
+                                </div>
+                              );
+                            })()}
                           </Show>
                         </div>
                       </Show>
