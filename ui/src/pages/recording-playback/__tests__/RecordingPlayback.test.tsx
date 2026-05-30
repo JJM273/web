@@ -40,6 +40,13 @@ import { setLeftPanelVisible } from "../shortcuts";
 function mockFetchForRecording() {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    if (url.includes("/api/v1/operations/") && url.endsWith("/actions")) {
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve([]),
+      });
+    }
     if (url.includes("/api/v1/operations/")) {
       return Promise.resolve({
         ok: true,
@@ -405,7 +412,7 @@ describe("RecordingPlayback", () => {
           ok: true,
           status: 200,
           json: () =>
-            Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }),
+            Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }),
         });
       }
       if (typeof url === "string" && url.includes("/marker-blacklist/") && (init?.method === "PUT" || init?.method === "DELETE")) {
@@ -477,6 +484,7 @@ describe("RecordingPlayback", () => {
           json: () =>
             Promise.resolve({
               authenticated: true,
+              role: "admin",
               steamId: "12345",
               steamName: "Admin",
             }),
@@ -603,7 +611,7 @@ describe("RecordingPlayback", () => {
         return Promise.resolve({
           ok: true,
           status: 200,
-          json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }),
+          json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }),
         });
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/")) {
@@ -669,7 +677,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) });
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) });
       }
       if (typeof url === "string" && url.includes("/marker-blacklist/") && (init?.method === "PUT" || init?.method === "DELETE")) {
         apiCalls.push({ url, method: init!.method! });
@@ -711,7 +719,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) };
+        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) };
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/") && init?.method === "PATCH") {
         return { ok: false, status: 500, statusText: "Internal Server Error" };
@@ -755,7 +763,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) };
+        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) };
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/") && init?.method === "PATCH") {
         patchCallCount++;
@@ -807,7 +815,7 @@ describe("RecordingPlayback", () => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
         return Promise.resolve({
           ok: true, status: 200,
-          json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }),
+          json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }),
         });
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/")) {
@@ -859,7 +867,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) };
+        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) };
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/") && init?.method === "PATCH") {
         const body = JSON.parse(init.body as string);
@@ -905,7 +913,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) };
+        return { ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) };
       }
       if (typeof url === "string" && url.includes("/api/v1/operations/") && init?.method === "PATCH") {
         const body = JSON.parse(init.body as string);
@@ -1082,7 +1090,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) });
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) });
       }
       if (url.includes("/api/v1/operations/")) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 42, world_name: "Altis", mission_name: "Op Alpha", mission_duration: 3600, filename: "test-42", date: "2024-01-15", storageFormat: "json" }) });
@@ -1137,7 +1145,7 @@ describe("RecordingPlayback", () => {
 
     globalThis.fetch = vi.fn().mockImplementation((url: string) => {
       if (typeof url === "string" && url.includes("/api/v1/auth/me")) {
-        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, steamId: "12345", steamName: "Admin" }) });
+        return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ authenticated: true, role: "admin", steamId: "12345", steamName: "Admin" }) });
       }
       if (url.includes("/api/v1/operations/")) {
         return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ id: 42, world_name: "Altis", mission_name: "Op Alpha", mission_duration: 3600, filename: "test-42", date: "2024-01-15", storageFormat: "json" }) });
