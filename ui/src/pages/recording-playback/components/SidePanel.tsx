@@ -1,10 +1,12 @@
 import { Switch, Match, For } from "solid-js";
 import type { Accessor, JSX } from "solid-js";
-import { UsersIcon, ActivityIcon, BarChartIcon } from "../../../components/Icons";
+import { UsersIcon, ActivityIcon, BarChartIcon, ClipboardIcon } from "../../../components/Icons";
 import { useI18n } from "../../../hooks/useLocale";
 import { UnitsTab } from "./UnitsTab";
 import { EventsTab } from "./EventsTab";
 import { StatsTab } from "./StatsTab";
+import { AARTab } from "./AARTab";
+import type { ActionDefinition } from "../../../data/types";
 import styles from "./SidePanel.module.css";
 
 export interface SidePanelProps {
@@ -14,6 +16,8 @@ export interface SidePanelProps {
   markerCounts?: Accessor<Map<number, number>>;
   isAdmin?: Accessor<boolean>;
   onToggleBlacklist?: (playerEntityId: number) => void;
+  actions?: Accessor<ActionDefinition[]>;
+  onEditAction?: (action: ActionDefinition) => void;
 }
 
 export function SidePanel(props: SidePanelProps): JSX.Element {
@@ -23,6 +27,7 @@ export function SidePanel(props: SidePanelProps): JSX.Element {
     { id: "units" as const, labelKey: "units", Icon: UsersIcon },
     { id: "events" as const, labelKey: "events", Icon: ActivityIcon },
     { id: "stats" as const, labelKey: "stats", Icon: BarChartIcon },
+    { id: "aar" as const, labelKey: "aar", Icon: ClipboardIcon },
   ];
 
   return (
@@ -56,6 +61,13 @@ export function SidePanel(props: SidePanelProps): JSX.Element {
         </Match>
         <Match when={props.activeTab() === "stats"}>
           <StatsTab />
+        </Match>
+        <Match when={props.activeTab() === "aar"}>
+          <AARTab
+            actions={props.actions}
+            isAdmin={props.isAdmin}
+            onEditAction={props.onEditAction}
+          />
         </Match>
       </Switch>
 

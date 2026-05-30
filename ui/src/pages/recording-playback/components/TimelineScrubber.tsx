@@ -10,6 +10,7 @@ import { CapturedEvent } from "../../../playback/events/capturedEvent";
 import { TerminalHackEvent } from "../../../playback/events/terminalHackEvent";
 import { formatElapsedTime } from "../../../playback/time";
 import type { FocusRange } from "./FocusToolbar";
+import type { ActionDefinition } from "../../../data/types";
 import styles from "./BottomBar.module.css";
 
 const BUCKET_COUNT = 120;
@@ -43,6 +44,10 @@ export interface TimelineScrubberProps {
   onDraftChange: (draft: FocusRange) => void;
   /** When true, scrubber zooms into the focus range (0–100% = inFrame–outFrame). */
   constrainToFocus: Accessor<boolean>;
+  /** Optional list of action definitions to display as a lane in the timeline. */
+  actions?: Accessor<ActionDefinition[]>;
+  /** Called when the user clicks on an action bar. */
+  onActionClick?: (action: ActionDefinition) => void;
 }
 
 export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
@@ -176,6 +181,37 @@ export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
     return result;
   });
 
+  /** Bin-packed action rows: each entry is { action, row } where row is 0–3. */
+  const packedActions = createMemo(() => {
+    const actionList = props.actions?.() ?? [];
+    const sorted = [...actionList].sort((a, b) => a.inFrame - b.inFrame);
+    // rows[i] = outFrame of the last action placed in that row
+    const rows: number[] = [];
+    const result: { action: ActionDefinition; row: number }[] = [];
+    for (const action of sorted) {
+      let placed = false;
+      for (let r = 0; r < 4; r++) {
+        // Check if this action overlaps any already-placed action in row r
+        if (rows[r] === undefined || action.inFrame >= rows[r]) {
+          rows[r] = action.outFrame;
+          result.push({ action, row: r });
+          placed = true;
+          break;
+        }
+      }
+      if (!placed) {
+        // Overflow: place in row 3 (last), will overlap visually
+        rows[3] = action.outFrame;
+        result.push({ action, row: 3 });
+      }
+    }
+    return result;
+  });
+
+  /** The action currently hovered (for tooltip). */
+  const [hoveredAction, setHoveredAction] = createSignal<ActionDefinition | null>(null);
+  const [hoveredActionX, setHoveredActionX] = createSignal<number>(0);
+
   const progress = createMemo(() => {
     const span = rangeSpan();
     return span > 0
@@ -290,6 +326,64 @@ export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
           </For>
         </div>
 
+        {/* Actions lane zone */}
+        <Show when={(props.actions?.() ?? []).length > 0}>
+          <div class={styles.actionsLane}>
+            <For each={packedActions()}>
+              {({ action, row }) => {
+                const leftPct = () => frameToPct(action.inFrame);
+                const widthPct = () => frameToPct(action.outFrame) - frameToPct(action.inFrame);
+                const topPx = row * 7 + 1;
+                return (
+                  <>
+                    {/* Vertical start tick */}
+                    <div
+                      class={styles.actionTick}
+                      style={{
+                        left: `${leftPct()}%`,
+                        top: `${topPx}px`,
+                        background: action.color,
+                      }}
+                    />
+                    {/* Horizontal bar */}
+                    <div
+                      class={styles.actionBar}
+                      style={{
+                        left: `${leftPct()}%`,
+                        width: `${widthPct()}%`,
+                        top: `${topPx + 2}px`,
+                        background: action.color,
+                      }}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={() => props.onActionClick?.(action)}
+                      onMouseEnter={(e) => {
+                        setHoveredAction(action);
+                        const rect = (e.currentTarget as HTMLElement)
+                          .closest("[data-testid='scrubber-track']")
+                          ?.getBoundingClientRect();
+                        if (rect) {
+                          const barRect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                          setHoveredActionX(barRect.left + barRect.width / 2 - rect.left);
+                        }
+                      }}
+                      onMouseLeave={() => setHoveredAction(null)}
+                    />
+                    {/* Vertical end tick */}
+                    <div
+                      class={styles.actionTick}
+                      style={{
+                        left: `${frameToPct(action.outFrame)}%`,
+                        top: `${topPx}px`,
+                        background: action.color,
+                      }}
+                    />
+                  </>
+                );
+              }}
+            </For>
+          </div>
+        </Show>
+
         {/* Thin scrub track at bottom */}
         <div class={styles.trackBar}>
           <div
@@ -359,6 +453,23 @@ export function TimelineScrubber(props: TimelineScrubberProps): JSX.Element {
                 </For>
               </div>
             </Show>
+          </div>
+        </Show>
+
+        {/* Action hover tooltip */}
+        <Show when={hoveredAction() !== null}>
+          <div
+            class={styles.hoverTooltip}
+            style={{ left: `${hoveredActionX()}px`, transform: "translateX(-50%)" }}
+          >
+            <div class={styles.hoverTooltipTime}>{hoveredAction()!.label}</div>
+            <div class={styles.hoverTooltipEvents}>
+              <div class={styles.hoverTooltipEvent}>
+                {formatElapsedTime(hoveredAction()!.inFrame, engine.captureDelayMs())}
+                {" – "}
+                {formatElapsedTime(hoveredAction()!.outFrame, engine.captureDelayMs())}
+              </div>
+            </div>
           </div>
         </Show>
 

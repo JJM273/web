@@ -408,4 +408,190 @@ describe("StatsTab", () => {
     expect(screen.getByText("IND")).toBeTruthy();
     expect(screen.queryByText("CIV")).toBeNull();
   });
+
+  // ---------------------------------------------------------------------------
+  // By Group section
+  // ---------------------------------------------------------------------------
+
+  it("hides By Group section when there are no unit entities", () => {
+    // getGroupKills iterates units — no units means empty result, hiding the section
+    const { engine, renderer } = createTestEngine();
+    engine.loadRecording(makeManifest([]));
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.queryByText("By Group")).toBeNull();
+  });
+
+  it("shows By Group section when units have kills", () => {
+    const { engine, renderer } = createTestEngine();
+    const positions = Array.from({ length: 20 }, () => ({
+      position: [100, 200] as [number, number],
+      direction: 0,
+      alive: 1 as const,
+    }));
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({ id: 1, name: "Alpha", side: "WEST", groupName: "Alpha", positions, endFrame: 19 }),
+          unitDef({ id: 2, name: "Bravo", side: "EAST", groupName: "Bravo", positions, endFrame: 19 }),
+        ],
+        [killedEvent(5, 2, 1, "M4A1", 100)],
+        19,
+      ),
+    );
+    engine.seekTo(10);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.getByText("By Group")).toBeTruthy();
+  });
+
+  it("shows correct group kill stats in By Group section", () => {
+    const { engine, renderer } = createTestEngine();
+    const positions = Array.from({ length: 20 }, () => ({
+      position: [100, 200] as [number, number],
+      direction: 0,
+      alive: 1 as const,
+    }));
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({ id: 1, name: "Rifleman", side: "WEST", groupName: "Alpha", positions, endFrame: 19 }),
+          unitDef({ id: 2, name: "Soldier", side: "EAST", groupName: "Bravo", positions, endFrame: 19 }),
+        ],
+        [killedEvent(5, 2, 1, "M4A1", 100)],
+        19,
+      ),
+    );
+    engine.seekTo(10);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.getByText("Alpha")).toBeTruthy();
+    expect(screen.getByText("K:1")).toBeTruthy();
+    expect(screen.getByText("D:1")).toBeTruthy();
+  });
+
+  it("shows vehicle kills in By Group section", () => {
+    const { engine, renderer } = createTestEngine();
+    const positions = Array.from({ length: 20 }, () => ({
+      position: [100, 200] as [number, number],
+      direction: 0,
+      alive: 1 as const,
+    }));
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({ id: 1, name: "ATGunner", side: "WEST", groupName: "Alpha", isPlayer: true, positions, endFrame: 19 }),
+          vehicleDef({ id: 50, type: "apc", side: "EAST", positions, endFrame: 19 }),
+        ],
+        [killedEvent(5, 50, 1, "Javelin", 500)],
+        19,
+      ),
+    );
+    engine.seekTo(10);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.getByText("By Group")).toBeTruthy();
+    expect(screen.getByText("VK:1")).toBeTruthy();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Equipment section
+  // ---------------------------------------------------------------------------
+
+  it("hides Equipment section when no vehicle events", () => {
+    const { engine, renderer } = createTestEngine();
+    engine.loadRecording(
+      makeManifest([
+        unitDef({ id: 1, name: "Alpha", side: "WEST" }),
+        unitDef({ id: 2, name: "Bravo", side: "EAST" }),
+      ]),
+    );
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.queryByText("Equipment")).toBeNull();
+  });
+
+  it("shows Equipment section with Destroyed and Lost (Combat) when unit kills a vehicle", () => {
+    const { engine, renderer } = createTestEngine();
+    const positions = Array.from({ length: 20 }, () => ({
+      position: [100, 200] as [number, number],
+      direction: 0,
+      alive: 1 as const,
+    }));
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({ id: 1, side: "WEST", positions, endFrame: 19 }),
+          vehicleDef({ id: 50, type: "car", side: "EAST", positions, endFrame: 19 }),
+        ],
+        [killedEvent(5, 50, 1, "RPG-7", 200)],
+        19,
+      ),
+    );
+    engine.seekTo(10);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    expect(screen.getByText("Equipment")).toBeTruthy();
+    expect(screen.getByText("Destroyed:")).toBeTruthy();
+    expect(screen.getByText("Lost (Combat):")).toBeTruthy();
+  });
+
+  it("shows correct vehicle type label in equipment section", () => {
+    const { engine, renderer } = createTestEngine();
+    const positions = Array.from({ length: 20 }, () => ({
+      position: [100, 200] as [number, number],
+      direction: 0,
+      alive: 1 as const,
+    }));
+    engine.loadRecording(
+      makeManifest(
+        [
+          unitDef({ id: 1, side: "WEST", positions, endFrame: 19 }),
+          vehicleDef({ id: 50, type: "tank", side: "EAST", positions, endFrame: 19 }),
+        ],
+        [killedEvent(5, 50, 1, "Javelin", 500)],
+        19,
+      ),
+    );
+    engine.seekTo(10);
+
+    render(() => (
+      <TestProviders engine={engine} renderer={renderer}>
+        <StatsTab />
+      </TestProviders>
+    ));
+
+    // "1× Armor" appears in both WEST's "Destroyed" and EAST's "Lost (Combat)" blocks
+    expect(screen.getAllByText("1× Armor").length).toBeGreaterThanOrEqual(1);
+  });
 });

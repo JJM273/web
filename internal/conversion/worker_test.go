@@ -95,6 +95,22 @@ func (m *mockRepo) ResetConversionStatus(ctx context.Context, fromStatus, toStat
 	return int64(len(ops)), nil
 }
 
+func (m *mockRepo) GetByID(ctx context.Context, id string) (*server.Operation, error) {
+	for _, ops := range m.byStatus {
+		for _, op := range ops {
+			if fmt.Sprintf("%d", op.ID) == id {
+				return &op, nil
+			}
+		}
+	}
+	for _, op := range m.pending {
+		if fmt.Sprintf("%d", op.ID) == id {
+			return &op, nil
+		}
+	}
+	return nil, fmt.Errorf("not found: %s", id)
+}
+
 func TestWorker_ConvertOne(t *testing.T) {
 	dir := t.TempDir()
 
@@ -531,6 +547,22 @@ func (m *errorMockRepo) ResetConversionStatus(ctx context.Context, fromStatus, t
 	delete(m.byStatus, fromStatus)
 	m.byStatus[toStatus] = append(m.byStatus[toStatus], ops...)
 	return int64(len(ops)), nil
+}
+
+func (m *errorMockRepo) GetByID(ctx context.Context, id string) (*server.Operation, error) {
+	for _, ops := range m.byStatus {
+		for _, op := range ops {
+			if fmt.Sprintf("%d", op.ID) == id {
+				return &op, nil
+			}
+		}
+	}
+	for _, op := range m.pending {
+		if fmt.Sprintf("%d", op.ID) == id {
+			return &op, nil
+		}
+	}
+	return nil, fmt.Errorf("not found: %s", id)
 }
 
 func TestProcessOnce_SelectPendingError(t *testing.T) {
@@ -1154,4 +1186,160 @@ func TestWorker_CleanupInterrupted_ResetFailedError(t *testing.T) {
 	ctx := context.Background()
 	// Should not panic, just log the error
 	worker.cleanupInterrupted(ctx)
+}
+
+// ---------------------------------------------------------------------------
+// mockActionRepo implements ActionRepo for TriggerActionStats tests
+// ---------------------------------------------------------------------------
+
+type mockActionRepo struct {
+	actions       map[string]server.Action
+	getActionErr  map[string]error
+	upsertErr     error
+	statusUpdates []mockStatusUpdate
+}
+
+type mockStatusUpdate struct {
+	actionID   string
+	status     server.ActionStatus
+	computedAt *string
+}
+
+func newMockActionRepo() *mockActionRepo {
+	return &mockActionRepo{
+		actions:      make(map[string]server.Action),
+		getActionErr: make(map[string]error),
+	}
+}
+
+func (m *mockActionRepo) GetAction(_ context.Context, actionID string) (server.Action, error) {
+	if err, ok := m.getActionErr[actionID]; ok {
+		return server.Action{}, err
+	}
+	if a, ok := m.actions[actionID]; ok {
+		return a, nil
+	}
+	return server.Action{}, fmt.Errorf("action not found: %s", actionID)
+}
+
+func (m *mockActionRepo) UpsertActionStats(_ context.Context, actionID string, stats []server.ActionStats) error {
+	return m.upsertErr
+}
+
+func (m *mockActionRepo) UpdateActionStatus(_ context.Context, actionID string, status server.ActionStatus, computedAt *string) error {
+	m.statusUpdates = append(m.statusUpdates, mockStatusUpdate{actionID: actionID, status: status, computedAt: computedAt})
+	return nil
+}
+
+// waitForActionStatus polls until UpdateActionStatus has been called at least once,
+// or the timeout expires.
+func waitForActionStatus(t *testing.T, repo *mockActionRepo, wantStatus string) mockStatusUpdate {
+	t.Helper()
+	timeout := time.After(5 * time.Second)
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-timeout:
+			t.Fatalf("timed out waiting for action status %q", wantStatus)
+		case <-ticker.C:
+			for _, u := range repo.statusUpdates {
+				if u.status == wantStatus {
+					return u
+				}
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// TriggerActionStats tests
+// ---------------------------------------------------------------------------
+
+func TestTriggerActionStats_ActionNotFound(t *testing.T) {
+	dir := t.TempDir()
+	opRepo := newMockRepo()
+	actionRepo := newMockActionRepo()
+	// GetAction will return an error for "missing-action"
+	actionRepo.getActionErr["missing-action"] = fmt.Errorf("not found")
+
+	worker := NewWorker(opRepo, Config{DataDir: dir})
+	worker.SetActionRepo(actionRepo)
+
+	worker.TriggerActionStats("missing-action", 1)
+
+	update := waitForActionStatus(t, actionRepo, server.ActionStatusFailed)
+	assert.Equal(t, "missing-action", update.actionID)
+	assert.Equal(t, server.ActionStatusFailed, update.status)
+	assert.Nil(t, update.computedAt)
+}
+
+func TestTriggerActionStats_OperationNotFound(t *testing.T) {
+	dir := t.TempDir()
+	opRepo := newMockRepo() // empty — GetByID will return "not found"
+	actionRepo := newMockActionRepo()
+	actionRepo.actions["action-1"] = server.Action{
+		ID:          "action-1",
+		RecordingID: 99,
+		Label:       "Test",
+		Color:       "#ff0000",
+		InFrame:     0,
+		OutFrame:    100,
+		Polygon:     [][]float64{{0, 0}, {10, 0}, {10, 10}, {0, 10}},
+	}
+
+	worker := NewWorker(opRepo, Config{DataDir: dir})
+	worker.SetActionRepo(actionRepo)
+
+	// Recording ID 99 does not exist in opRepo
+	worker.TriggerActionStats("action-1", 99)
+
+	update := waitForActionStatus(t, actionRepo, server.ActionStatusFailed)
+	assert.Equal(t, "action-1", update.actionID)
+	assert.Equal(t, server.ActionStatusFailed, update.status)
+	assert.Nil(t, update.computedAt)
+}
+
+func TestTriggerActionStats_MissingDataFile(t *testing.T) {
+	// Operation exists but no protobuf data on disk → ComputeActionStats fails → ActionStatusFailed
+	dir := t.TempDir()
+	opRepo := newMockRepo()
+	opRepo.pending = []server.Operation{
+		{ID: 1, Filename: "nonexistent_op"},
+	}
+	actionRepo := newMockActionRepo()
+	actionRepo.actions["action-2"] = server.Action{
+		ID:          "action-2",
+		RecordingID: 1,
+		Label:       "Test",
+		Color:       "#00ff00",
+		InFrame:     0,
+		OutFrame:    100,
+		Polygon:     [][]float64{{0, 0}, {10, 0}, {10, 10}, {0, 10}},
+	}
+
+	worker := NewWorker(opRepo, Config{DataDir: dir})
+	worker.SetActionRepo(actionRepo)
+
+	worker.TriggerActionStats("action-2", 1)
+
+	update := waitForActionStatus(t, actionRepo, server.ActionStatusFailed)
+	assert.Equal(t, "action-2", update.actionID)
+	assert.Equal(t, server.ActionStatusFailed, update.status)
+	assert.Nil(t, update.computedAt)
+}
+
+func TestTriggerActionStats_NoActionRepo(t *testing.T) {
+	// If no ActionRepo is set, TriggerActionStats should return immediately (no panic).
+	dir := t.TempDir()
+	opRepo := newMockRepo()
+	worker := NewWorker(opRepo, Config{DataDir: dir})
+	// Do NOT call SetActionRepo — repoAction is nil.
+
+	// Should not panic and should return immediately.
+	worker.TriggerActionStats("any-action", 1)
+
+	// Give any hypothetical goroutine time to run (there should be none).
+	time.Sleep(50 * time.Millisecond)
+	// No way to assert much here — just verify no panic occurred.
 }

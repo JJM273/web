@@ -42,6 +42,7 @@ export class EntityManager {
         def.startFrame,
         def.endFrame,
         def.type, // vehicleType = EntityType string
+        def.side, // staticSide from entity definition
         def.positions ?? null,
         def.type, // iconType = same as entity type
       );
