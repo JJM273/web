@@ -69,15 +69,17 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
     }
   });
 
-  const isAlive = (unitId: number): boolean => {
-    const snap = engine.entitySnapshots().get(unitId);
-    return snap ? !!snap.alive : false;
-  };
-
   // Frame-aware kill counts
   const killDeathCounts = createMemo(() =>
     engine.eventManager.getKillDeathCounts(engine.currentFrame()),
   );
+
+  const getUnitStatus = (unitId: number): "alive" | "dead" | "inactive" => {
+    const snap = engine.entitySnapshots().get(unitId);
+    if (snap && snap.alive) return "alive";
+    if ((killDeathCounts().deaths.get(unitId) ?? 0) > 0) return "dead";
+    return "inactive";
+  };
 
   const groups = createMemo((): GroupData[] => {
     const units = unitsForSide(activeSide());
@@ -108,11 +110,12 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
   };
 
   const aliveCount = (units: Unit[]): number => {
-    // Access snapshots for reactivity
+    // Access both reactive sources so this recomputes on snapshot or kill-event changes
     engine.entitySnapshots();
+    killDeathCounts();
     let count = 0;
     for (const u of units) {
-      if (isAlive(u.id)) count++;
+      if (getUnitStatus(u.id) === "alive") count++;
     }
     return count;
   };
@@ -185,7 +188,7 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
                 <Show when={expanded()}>
                   <For each={group.units}>
                     {(unit) => {
-                      const alive = () => isAlive(unit.id);
+                      const status = () => getUnitStatus(unit.id);
                       const selected = () => selectedUnit() === unit.id;
                       return (
                         <>
@@ -193,7 +196,8 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
                             class={styles.unitRow}
                             classList={{
                               [styles.unitRowSelected]: selected(),
-                              [styles.unitRowDead]: !alive(),
+                              [styles.unitRowDead]: status() === "dead",
+                              [styles.unitRowInactive]: status() === "inactive",
                             }}
                             onClick={() =>
                               setSelectedUnit(selected() ? null : unit.id)
@@ -211,8 +215,9 @@ export function UnitsTab(props: UnitsTabProps): JSX.Element {
                               <span
                                 class={styles.unitName}
                                 classList={{
-                                  [styles.unitNameAlive]: alive(),
-                                  [styles.unitNameDead]: !alive(),
+                                  [styles.unitNameAlive]: status() === "alive",
+                                  [styles.unitNameDead]: status() === "dead",
+                                  [styles.unitNameInactive]: status() === "inactive",
                                 }}
                               >
                                 {unit.name || `Unit ${unit.id}`}

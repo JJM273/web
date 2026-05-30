@@ -213,6 +213,10 @@
   background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
 }
 
+.unitRowInactive {
+  opacity: 0.45;
+}
+
 .unitRowDead {
   opacity: 0.45;
 }
@@ -245,8 +249,12 @@
   color: var(--text-secondary);
 }
 
-.unitNameDead {
+.unitNameInactive {
   color: var(--text-dimmer);
+}
+
+.unitNameDead {
+  color: var(--accent-warning);
 }
 
 .unitAiBadge {
