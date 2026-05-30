@@ -6,7 +6,6 @@ expand the data summarizationa and exploration of OCAP web app to facilitate bet
 ### Roadmap for future features
     - [ ] add per side AAR summary to recording select page summary (requires backend work)
     - [ ] classify AI groups by vehicle, aircraft, infantry based on weapon used
-    - [ ] feature to select timefame + geofence to specify multiple separate actions in a single mission
     - [ ] feature for generating "what happened" part of AAR, should work at group and command level, group level=movement of individuals, command level=movement of groups
         e.x. Command level: Alpha 1-2 (8infantry) moved NE, @t+2min engaged 10 enemy infantry at grid 123456, 2KIA, 10EKIA, hold at that position. @t+10min engaged by enemy APC, Tank, 8 infantry, 5KIA, APC destroyed, 7EKIA.
     - [ ] toggle between map symbol for group vs individuals
@@ -14,6 +13,7 @@ expand the data summarizationa and exploration of OCAP web app to facilitate bet
     - [ ] DEFERRED: full streaming/chunk-format support for ownership scanning — processVehicleOwnership currently only processes vehicles with a positions array (JSON recording format); streaming format uses mutable vehicle.crew updated at render time and would need a separate per-frame crew scan or a crew-change event stream
 
 ### Completed
+    - [x] feature to select timefame + geofence to specify multiple separate actions in a single mission
     - [x] BUG summary on recording select page is missing in dev
     - [x] KNOWN BUG vehicles spawned from the garage and possible by game logic are counting as captures because they start as empty with no side (even if for 1 frame), the proximity based side inference would fix this but we may want a work around for now, possibly time base inference, if side changes from empty in first 30s of existence, don't count as a capture, just set initial side.
     - [x] BUG new vehicle logic for captures does not seem to be working properly. not counting captures of civ vehicles, captures of enemy vehicles revert back.
