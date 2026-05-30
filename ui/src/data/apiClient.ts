@@ -24,6 +24,7 @@ export interface CustomizeConfig {
   headerSubtitle?: string;
   pageTitle?: string;
   cssOverrides?: Record<string, string>;
+  conversionEnabled?: boolean;
 }
 
 export interface BuildInfo {

@@ -26,6 +26,7 @@ import { TimelineScrubber } from "./TimelineScrubber";
 import type { FocusRange } from "./FocusToolbar";
 import { FocusToolbar } from "./FocusToolbar";
 import { ActionCreationToolbar } from "./ActionCreationToolbar";
+import { useCustomize } from "../../../hooks/useCustomize";
 import styles from "./BottomBar.module.css";
 
 interface ActionCreationProps {
@@ -71,6 +72,8 @@ const SPEEDS = [1, 2, 5, 10, 20, 60];
 export function BottomBar(props: BottomBarProps): JSX.Element {
   const engine = useEngine();
   const { t } = useI18n();
+  const customize = useCustomize();
+  const conversionEnabled = () => customize().conversionEnabled !== false;
 
   const currentTime = () =>
     formatTime(engine.currentFrame(), props.timeMode(), engine.timeConfig);
@@ -221,8 +224,10 @@ export function BottomBar(props: BottomBarProps): JSX.Element {
           <Show when={props.isAdmin() && props.onNewAction && !props.editingFocus()}>
             <button
               class={styles.focusBtn}
-              onClick={props.onNewAction}
-              title="Create new action region"
+              onClick={conversionEnabled() ? props.onNewAction : undefined}
+              disabled={!conversionEnabled()}
+              title={conversionEnabled() ? "Create new action region" : "Requires OCAP_CONVERSION_ENABLED=true"}
+              style={{ opacity: conversionEnabled() ? undefined : "0.4", cursor: conversionEnabled() ? undefined : "not-allowed" }}
             >
               + Action
             </button>

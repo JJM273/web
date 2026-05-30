@@ -328,8 +328,16 @@ func (h *Handler) GetWorlds(c ContextNoBody) ([]WorldInfo, error) {
 	return worlds, nil
 }
 
-func (h *Handler) GetCustomize(c ContextNoBody) (Customize, error) {
-	return h.setting.Customize, nil
+type CustomizeResponse struct {
+	Customize
+	ConversionEnabled bool `json:"conversionEnabled"`
+}
+
+func (h *Handler) GetCustomize(c ContextNoBody) (CustomizeResponse, error) {
+	return CustomizeResponse{
+		Customize:         h.setting.Customize,
+		ConversionEnabled: h.actionStatsTrigger != nil,
+	}, nil
 }
 
 func (h *Handler) GetVersion(c ContextNoBody) (VersionResponse, error) {
