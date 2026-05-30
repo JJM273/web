@@ -394,12 +394,12 @@ export class EventManager {
       if (causer instanceof Unit) {
         causerSide = causer.side;
       } else if (causer instanceof Vehicle) {
-        causerSide = this.getVehicleOwnershipAtFrame(causer.id, event.frameNum).side;
+        causerSide = this.getVehicleOwnershipAtFrame(causer.id, event.frameNum).side ?? causer.staticSide;
       }
 
       if (causerSide) inc(ensureSide(causerSide).destroyed, vehicleType);
 
-      const victimSide = this.getVehicleOwnershipAtFrame(victim.id, event.frameNum).side;
+      const victimSide = this.getVehicleOwnershipAtFrame(victim.id, event.frameNum).side ?? victim.staticSide;
       if (victimSide) inc(ensureSide(victimSide).lost_combat, vehicleType);
     }
 

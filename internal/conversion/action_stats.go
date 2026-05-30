@@ -225,9 +225,11 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 				gs := getGroup(tgtEnt.Group, tgtEnt.Side)
 				gs.deaths++
 
-				// vehiclesLost: target is a vehicle killed by an enemy (any source, participating or not)
+				// vehiclesLost: target is a vehicle killed by an enemy (any source, participating or not).
+				// Unknown sources (SourceID=0, world/environment kills) are always counted.
 				if tgtEnt.Type == "vehicle" && tgtEnt.VehicleClass != "" {
-					if srcEnt, ok := entityByID[evt.SourceID]; ok && srcEnt.Side != tgtEnt.Side {
+					srcEnt, ok := entityByID[evt.SourceID]
+					if !ok || srcEnt.Side != tgtEnt.Side {
 						gs.vehiclesLost[tgtEnt.VehicleClass]++
 					}
 				}
@@ -275,8 +277,9 @@ func ComputeActionStats(ctx context.Context, engine storage.Engine, dataDir stri
 	// Build result
 	result := make([]server.ActionStats, 0, len(groups))
 	for key, gs := range groups {
-		// Only emit groups with at least one participating entity
-		if gs.unitCount == 0 {
+		// Only emit groups that have at least one participating unit OR vehicle stats to show.
+		// A vehicle-only group (crew not in polygon) can still carry vehiclesLost data.
+		if gs.unitCount == 0 && len(gs.vehiclesLost) == 0 && len(gs.vehiclesDestroyed) == 0 {
 			continue
 		}
 
