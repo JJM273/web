@@ -219,7 +219,10 @@ export function EventsTab(): JSX.Element {
                           <span style={{ color: sideColor(event.side) }}>
                             {event.side}
                           </span>
-                          <span style={{ color: "var(--text-secondary)" }}>{event.message}</span>
+                          <Show when={event.message}>
+                            {" "}
+                            <span style={{ color: "var(--text-secondary)" }}>{event.message}</span>
+                          </Show>
                         </span>
                         <span class={styles.eventMeta}>
                           <span class={styles.eventTime}>
