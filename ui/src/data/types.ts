@@ -202,3 +202,37 @@ export interface WorldInfo {
   name: string;
   displayName: string;
 }
+
+// --------------- AAR Actions ---------------
+
+export type ActionStatus = "pending" | "ready" | "failed";
+
+export interface ActionStats {
+  actionId: string;
+  groupName: string;
+  side: string;
+  unitCount: number;
+  playerCount: number;
+  kills: number;
+  deaths: number;
+  vehiclesDestroyed: Record<string, number>;
+  vehiclesLost: Record<string, number>;
+  roundsFired: number;
+  enteredFrame?: number;
+  exitedFrame?: number;
+  primaryMovementType?: string;
+}
+
+export interface ActionDefinition {
+  id: string;
+  recordingId: string;
+  label: string;
+  color: string;
+  inFrame: number;
+  outFrame: number;
+  polygon: ArmaCoord[];
+  sortOrder: number;
+  status: ActionStatus;
+  computedAt?: string;
+  stats?: ActionStats[];
+}

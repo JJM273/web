@@ -57,7 +57,7 @@
 .scrubberWrap {
   position: relative;
   width: 100%;
-  height: 36px;
+  height: 68px;
 }
 
 .scrubberTrack {
@@ -167,13 +167,47 @@
 
 .heatmapContainer {
   position: absolute;
-  bottom: 6px;
+  bottom: 38px;
   left: 0;
   right: 0;
   height: 28px;
   display: flex;
   align-items: flex-end;
   gap: 1px;
+  pointer-events: none;
+}
+
+/* ─── Actions Lane ─── */
+
+.actionsLane {
+  position: absolute;
+  bottom: 9px;
+  left: 0;
+  right: 0;
+  height: 28px;
+  pointer-events: none;
+}
+
+.actionBar {
+  position: absolute;
+  height: 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  pointer-events: all;
+  opacity: 0.75;
+  transition: opacity 0.12s;
+}
+
+.actionBar:hover {
+  opacity: 1;
+}
+
+.actionTick {
+  position: absolute;
+  width: 1px;
+  height: 8px;
+  transform: translateX(-50%);
+  opacity: 0.6;
   pointer-events: none;
 }
 

@@ -25,11 +25,20 @@ type OperationRepo interface {
 	UpdateSchemaVersion(ctx context.Context, id int64, version uint32) error
 	UpdateChunkCount(ctx context.Context, id int64, count int) error
 	UpdateOperationStats(ctx context.Context, id int64, playerCount, killCount, playerKillCount int, sideComposition server.SideComposition) error
+	GetByID(ctx context.Context, id string) (*server.Operation, error)
+}
+
+// ActionRepo defines the repository interface needed by the worker for action stats.
+type ActionRepo interface {
+	GetAction(ctx context.Context, actionID string) (server.Action, error)
+	UpsertActionStats(ctx context.Context, actionID string, stats []server.ActionStats) error
+	UpdateActionStatus(ctx context.Context, actionID string, status server.ActionStatus, computedAt *string) error
 }
 
 // Worker handles background conversion of JSON recordings to protobuf format
 type Worker struct {
 	repo        OperationRepo
+	repoAction  ActionRepo // optional, nil if action stats disabled
 	dataDir     string
 	engine      storage.Engine
 	interval    time.Duration
@@ -72,6 +81,11 @@ func NewWorker(repo OperationRepo, cfg Config) *Worker {
 		batchSize:   cfg.BatchSize,
 		retryFailed: cfg.RetryFailed,
 	}
+}
+
+// SetActionRepo attaches an ActionRepo to the worker, enabling TriggerActionStats.
+func (w *Worker) SetActionRepo(repo ActionRepo) {
+	w.repoAction = repo
 }
 
 // cleanupInterrupted resets interrupted conversions and removes partial output files.
@@ -342,5 +356,65 @@ func (w *Worker) TriggerConversion(id int64, filename string) {
 				slog.Error("failed to update status", "operation_id", id, "error", err)
 			}
 		}
+	}()
+}
+
+// TriggerActionStats starts async computation of stats for the given action.
+// It spawns a goroutine and returns immediately (non-blocking).
+func (w *Worker) TriggerActionStats(actionID string, recordingID int64) {
+	if w.repoAction == nil {
+		slog.Warn("TriggerActionStats called but no ActionRepo configured", "action_id", actionID)
+		return
+	}
+
+	go func() {
+		ctx := context.Background()
+
+		// Fetch the action definition.
+		action, err := w.repoAction.GetAction(ctx, actionID)
+		if err != nil {
+			slog.Error("action stats: failed to get action", "action_id", actionID, "error", err)
+			if err := w.repoAction.UpdateActionStatus(ctx, actionID, server.ActionStatusFailed, nil); err != nil {
+				slog.Error("action stats: failed to update status to failed", "action_id", actionID, "error", err)
+			}
+			return
+		}
+
+		// Look up the operation filename.
+		op, err := w.repo.GetByID(ctx, fmt.Sprintf("%d", recordingID))
+		if err != nil {
+			slog.Error("action stats: failed to get operation", "recording_id", recordingID, "error", err)
+			if err := w.repoAction.UpdateActionStatus(ctx, actionID, server.ActionStatusFailed, nil); err != nil {
+				slog.Error("action stats: failed to update status to failed", "action_id", actionID, "error", err)
+			}
+			return
+		}
+
+		// Compute the stats.
+		stats, err := ComputeActionStats(ctx, w.engine, w.dataDir, op.Filename, action)
+		if err != nil {
+			slog.Error("action stats: computation failed", "action_id", actionID, "error", err)
+			if err := w.repoAction.UpdateActionStatus(ctx, actionID, server.ActionStatusFailed, nil); err != nil {
+				slog.Error("action stats: failed to update status to failed", "action_id", actionID, "error", err)
+			}
+			return
+		}
+
+		// Upsert the stats.
+		if err := w.repoAction.UpsertActionStats(ctx, actionID, stats); err != nil {
+			slog.Error("action stats: failed to upsert stats", "action_id", actionID, "error", err)
+			if err := w.repoAction.UpdateActionStatus(ctx, actionID, server.ActionStatusFailed, nil); err != nil {
+				slog.Error("action stats: failed to update status to failed", "action_id", actionID, "error", err)
+			}
+			return
+		}
+
+		// Mark ready.
+		now := time.Now().UTC().Format(time.RFC3339)
+		if err := w.repoAction.UpdateActionStatus(ctx, actionID, server.ActionStatusReady, &now); err != nil {
+			slog.Error("action stats: failed to update status to ready", "action_id", actionID, "error", err)
+		}
+
+		slog.Info("action stats computed", "action_id", actionID, "recording_id", recordingID, "groups", len(stats))
 	}()
 }

@@ -52,7 +52,7 @@ func (e *ProtobufEngine) GetManifest(ctx context.Context, filename string) (*Man
 	}
 
 	for _, ent := range pbManifest.Entities {
-		manifest.Entities = append(manifest.Entities, EntityDef{
+		def := EntityDef{
 			ID:           ent.Id,
 			Type:         entityTypeToString(ent.Type),
 			Name:         ent.Name,
@@ -63,7 +63,16 @@ func (e *ProtobufEngine) GetManifest(ctx context.Context, filename string) (*Man
 			EndFrame:     ent.EndFrame,
 			IsPlayer:     ent.IsPlayer,
 			VehicleClass: ent.VehicleClass,
-		})
+		}
+		for _, ff := range ent.FramesFired {
+			def.FramesFired = append(def.FramesFired, FiredFrame{
+				FrameNum: ff.FrameNum,
+				PosX:     ff.PosX,
+				PosY:     ff.PosY,
+				PosZ:     ff.PosZ,
+			})
+		}
+		manifest.Entities = append(manifest.Entities, def)
 	}
 
 	for _, evt := range pbManifest.Events {

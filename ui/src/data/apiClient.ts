@@ -1,4 +1,4 @@
-import type { Recording, WorldConfig, WorldInfo } from "./types";
+import type { Recording, WorldConfig, WorldInfo, ActionDefinition, ActionStats, ActionStatus } from "./types";
 import type { ToolSet, HealthCheck, MapInfo, JobInfo } from "../pages/map-manager/types";
 
 // ─── Response types for endpoints not covered in types.ts ───
@@ -24,6 +24,7 @@ export interface CustomizeConfig {
   headerSubtitle?: string;
   pageTitle?: string;
   cssOverrides?: Record<string, string>;
+  conversionEnabled?: boolean;
 }
 
 export interface BuildInfo {
@@ -147,6 +148,72 @@ function mapRecording(raw: RawRecording): Recording {
     sideComposition: raw.side_composition,
     focusStart: raw.focusStart ?? undefined,
     focusEnd: raw.focusEnd ?? undefined,
+  };
+}
+
+// ─── Raw server response shapes for actions (snake_case from Go JSON tags) ───
+
+interface RawActionStats {
+  action_id: string;
+  group_name: string;
+  side: string;
+  unit_count: number;
+  player_count: number;
+  kills: number;
+  deaths: number;
+  vehicles_destroyed: Record<string, number> | null;
+  vehicles_lost: Record<string, number> | null;
+  rounds_fired: number;
+  entered_frame?: number | null;
+  exited_frame?: number | null;
+  primary_movement_type?: string | null;
+}
+
+interface RawActionDefinition {
+  id: string;
+  recording_id: number;
+  label: string;
+  color: string;
+  in_frame: number;
+  out_frame: number;
+  polygon: [number, number][];
+  sort_order: number;
+  status: ActionStatus;
+  computed_at?: string | null;
+  stats?: RawActionStats[];
+}
+
+function mapActionStats(raw: RawActionStats): ActionStats {
+  return {
+    actionId: raw.action_id,
+    groupName: raw.group_name,
+    side: raw.side,
+    unitCount: raw.unit_count,
+    playerCount: raw.player_count,
+    kills: raw.kills,
+    deaths: raw.deaths,
+    vehiclesDestroyed: raw.vehicles_destroyed ?? {},
+    vehiclesLost: raw.vehicles_lost ?? {},
+    roundsFired: raw.rounds_fired,
+    enteredFrame: raw.entered_frame ?? undefined,
+    exitedFrame: raw.exited_frame ?? undefined,
+    primaryMovementType: raw.primary_movement_type ?? undefined,
+  };
+}
+
+function mapActionDefinition(raw: RawActionDefinition): ActionDefinition {
+  return {
+    id: raw.id,
+    recordingId: String(raw.recording_id),
+    label: raw.label,
+    color: raw.color,
+    inFrame: raw.in_frame,
+    outFrame: raw.out_frame,
+    polygon: raw.polygon as ActionDefinition["polygon"],
+    sortOrder: raw.sort_order,
+    status: raw.status,
+    computedAt: raw.computed_at ?? undefined,
+    stats: raw.stats?.map(mapActionStats),
   };
 }
 
@@ -479,6 +546,81 @@ export class ApiClient {
       method: "POST",
       body: formData,
     });
+  }
+
+  // ─── AAR Action methods ───
+
+  /**
+   * Fetch all actions for a recording.
+   * GET {baseUrl}/api/v1/operations/{recordingId}/actions
+   */
+  async getActions(recordingId: string): Promise<ActionDefinition[]> {
+    const data = await this.fetchJsonAuth<RawActionDefinition[]>(
+      `${this.baseUrl}/api/v1/operations/${encodeURIComponent(recordingId)}/actions`,
+    );
+    return data.map(mapActionDefinition);
+  }
+
+  /**
+   * Create a new action for a recording.
+   * POST {baseUrl}/api/v1/operations/{recordingId}/actions
+   */
+  async createAction(
+    recordingId: string,
+    data: { label: string; color: string; inFrame: number; outFrame: number; polygon: number[][] },
+  ): Promise<ActionDefinition> {
+    const raw = await this.requestJson<RawActionDefinition>(
+      `${this.baseUrl}/api/v1/operations/${encodeURIComponent(recordingId)}/actions`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: data.label,
+          color: data.color,
+          in_frame: data.inFrame,
+          out_frame: data.outFrame,
+          polygon: data.polygon,
+        }),
+      },
+    );
+    return mapActionDefinition(raw);
+  }
+
+  /**
+   * Update an existing action.
+   * PUT {baseUrl}/api/v1/operations/{recordingId}/actions/{actionId}
+   */
+  async updateAction(
+    recordingId: string,
+    actionId: string,
+    data: { label: string; color: string; inFrame: number; outFrame: number; polygon: number[][] },
+  ): Promise<ActionDefinition> {
+    const raw = await this.requestJson<RawActionDefinition>(
+      `${this.baseUrl}/api/v1/operations/${encodeURIComponent(recordingId)}/actions/${encodeURIComponent(actionId)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label: data.label,
+          color: data.color,
+          in_frame: data.inFrame,
+          out_frame: data.outFrame,
+          polygon: data.polygon,
+        }),
+      },
+    );
+    return mapActionDefinition(raw);
+  }
+
+  /**
+   * Delete an action.
+   * DELETE {baseUrl}/api/v1/operations/{recordingId}/actions/{actionId}
+   */
+  async deleteAction(recordingId: string, actionId: string): Promise<void> {
+    await this.request(
+      `${this.baseUrl}/api/v1/operations/${encodeURIComponent(recordingId)}/actions/${encodeURIComponent(actionId)}`,
+      { method: "DELETE" },
+    );
   }
 
   // ─── Marker blacklist methods ───

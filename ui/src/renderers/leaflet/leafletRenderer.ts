@@ -139,6 +139,8 @@ export class LeafletRenderer implements MapRenderer {
   private readonly _setActiveStyleIndexSig: Setter<number>;
   private readonly _layerVisibility: Accessor<Record<string, boolean>>;
   private readonly _setLayerVisibility: Setter<Record<string, boolean>>;
+  private readonly _mapVersion: Accessor<number>;
+  private readonly _setMapVersion: Setter<number>;
   private hideMarkerPopups = false;
 
   private layers: Record<LayerGroupKey, L.LayerGroup> = {
@@ -168,6 +170,19 @@ export class LeafletRenderer implements MapRenderer {
   private multiplier = 1;
   private maxNativeZoom = 0;
 
+  // Draw mode state
+  private _drawVertices: ArmaCoord[] = [];
+  private _isDrawing = false;
+  private _drawSvg: SVGElement | null = null;
+  private _drawCallbacks: {
+    onComplete: (polygon: ArmaCoord[]) => void;
+    onCancel: () => void;
+  } | null = null;
+  private _drawAbortController: AbortController | null = null;
+  private _drawCtrlPanning = false;
+  // Timer used to debounce click events so dblclick can cancel them
+  private _drawClickTimer: ReturnType<typeof setTimeout> | null = null;
+
   constructor() {
     const [ndm, setNdm] = createSignal<"players" | "all" | "none">("players");
     this._nameDisplayMode = ndm;
@@ -195,9 +210,18 @@ export class LeafletRenderer implements MapRenderer {
     });
     this._layerVisibility = lv;
     this._setLayerVisibility = setLv;
+
+    const [mv, setMv] = createSignal(0);
+    this._mapVersion = mv;
+    this._setMapVersion = setMv;
   }
 
   // ==================== Lifecycle ====================
+
+  /** Reactive version counter that increments on every map move. Use as a dependency to recompute screen coordinates. */
+  get mapVersion(): Accessor<number> {
+    return this._mapVersion;
+  }
 
   init(container: HTMLElement, world: WorldConfig): void {
     this.world = world;
@@ -255,6 +279,7 @@ export class LeafletRenderer implements MapRenderer {
     this.map.on("click", (e: L.LeafletMouseEvent) => {
       this.fireEvent("click", this.latLngToArma(e.latlng));
     });
+    this.map.on("move", () => this._setMapVersion(this._mapVersion() + 1));
   }
 
   private initMapLibreMode(container: HTMLElement, world: WorldConfig): void {
@@ -1494,5 +1519,320 @@ export class LeafletRenderer implements MapRenderer {
     return {
       container: this.map?.getContainer(),
     };
+  }
+
+  // ==================== Draw mode ====================
+
+  enableDrawMode(
+    onComplete: (polygon: ArmaCoord[]) => void,
+    onCancel: () => void,
+    color = "#f39c12",
+  ): void {
+    if (this._isDrawing) {
+      this.disableDrawMode();
+    }
+
+    this._isDrawing = true;
+    this._drawVertices = [];
+    this._drawCallbacks = { onComplete, onCancel };
+    this._drawClickTimer = null;
+    this._drawCtrlPanning = false;
+
+    console.debug("[draw] enableDrawMode, color:", color);
+
+    // Create SVG overlay covering the full map container
+    const container = this.map.getContainer();
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.style.cssText =
+      "position:absolute;top:0;left:0;width:100%;height:100%;z-index:450;pointer-events:all;cursor:crosshair;";
+    // Drop-shadow for contrast against light/dark map backgrounds
+    svg.style.filter = "drop-shadow(0 0 2px rgba(0,0,0,0.9)) drop-shadow(0 0 4px rgba(0,0,0,0.7))";
+    container.appendChild(svg);
+    this._drawSvg = svg;
+
+    // Create preview elements (each has a shadow pass + color pass for contrast)
+    const polylineShadow = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polylineShadow.setAttribute("fill", "none");
+    polylineShadow.setAttribute("stroke", "rgba(0,0,0,0.6)");
+    polylineShadow.setAttribute("stroke-width", "5");
+    polylineShadow.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(polylineShadow);
+
+    const polyline = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    polyline.setAttribute("fill", "none");
+    polyline.setAttribute("stroke", color);
+    polyline.setAttribute("stroke-width", "2.5");
+    polyline.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(polyline);
+
+    const ghostLineShadow = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    ghostLineShadow.setAttribute("fill", "none");
+    ghostLineShadow.setAttribute("stroke", "rgba(0,0,0,0.6)");
+    ghostLineShadow.setAttribute("stroke-width", "5");
+    ghostLineShadow.setAttribute("stroke-dasharray", "6 6");
+    ghostLineShadow.setAttribute("display", "none");
+    svg.appendChild(ghostLineShadow);
+
+    const ghostLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
+    ghostLine.setAttribute("fill", "none");
+    ghostLine.setAttribute("stroke", color);
+    ghostLine.setAttribute("stroke-width", "2");
+    ghostLine.setAttribute("stroke-dasharray", "4 4");
+    ghostLine.setAttribute("display", "none");
+    svg.appendChild(ghostLine);
+
+    const firstVertexCircle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+    firstVertexCircle.setAttribute("r", "8");
+    firstVertexCircle.setAttribute("fill", color + "55");
+    firstVertexCircle.setAttribute("stroke", color);
+    firstVertexCircle.setAttribute("stroke-width", "2.5");
+    firstVertexCircle.setAttribute("display", "none");
+    svg.appendChild(firstVertexCircle);
+
+    // Disable map dragging
+    this.map.dragging.disable();
+
+    const ac = new AbortController();
+    this._drawAbortController = ac;
+    const { signal } = ac;
+
+    /** Convert a mouse event on the SVG to screen pixel offset within the container. */
+    const eventToContainerPoint = (e: MouseEvent): L.Point => {
+      const rect = container.getBoundingClientRect();
+      return L.point(e.clientX - rect.left, e.clientY - rect.top);
+    };
+
+    /** Re-render the SVG preview from current vertices + optional cursor position. */
+    const updatePreview = (cursorPt?: L.Point): void => {
+      const verts = this._drawVertices;
+
+      // Convert all vertices to screen coords
+      const screenPts = verts.map((v) =>
+        this.map.latLngToContainerPoint(this.armaToLatLng(v)),
+      );
+
+      // Update polylines (shadow + color)
+      const ptsStr = screenPts.length >= 2
+        ? screenPts.map((p) => `${p.x},${p.y}`).join(" ")
+        : "";
+      polylineShadow.setAttribute("points", ptsStr);
+      polyline.setAttribute("points", ptsStr);
+
+      // Update ghost lines (shadow + color)
+      if (screenPts.length >= 1 && cursorPt) {
+        const last = screenPts[screenPts.length - 1];
+        for (const el of [ghostLineShadow, ghostLine]) {
+          el.setAttribute("x1", String(last.x));
+          el.setAttribute("y1", String(last.y));
+          el.setAttribute("x2", String(cursorPt.x));
+          el.setAttribute("y2", String(cursorPt.y));
+          el.setAttribute("display", "");
+        }
+      } else {
+        ghostLineShadow.setAttribute("display", "none");
+        ghostLine.setAttribute("display", "none");
+      }
+
+      // Update first-vertex close target
+      if (screenPts.length >= 1) {
+        const first = screenPts[0];
+        firstVertexCircle.setAttribute("cx", String(first.x));
+        firstVertexCircle.setAttribute("cy", String(first.y));
+        firstVertexCircle.setAttribute("display", "");
+      } else {
+        firstVertexCircle.setAttribute("display", "none");
+      }
+    };
+
+    /** Close the polygon: fire onComplete and clean up. */
+    const closePolygon = (): void => {
+      console.debug("[draw] polygon closed, vertex count:", this._drawVertices.length);
+      const cb = this._drawCallbacks;
+      const verts = [...this._drawVertices];
+      this.disableDrawMode();
+      console.debug("[draw] calling onComplete with verts:", verts);
+      cb?.onComplete(verts);
+    };
+
+    // mousemove — update ghost segment
+    svg.addEventListener(
+      "mousemove",
+      (e: MouseEvent) => {
+        const pt = eventToContainerPoint(e);
+        updatePreview(pt);
+      },
+      { signal },
+    );
+
+    // click — schedule vertex addition with a 220ms debounce so that a dblclick
+    // can cancel the pending single-click before it commits a spurious vertex.
+    svg.addEventListener(
+      "click",
+      (e: MouseEvent) => {
+        // Ignore ctrl+click (reserved for pan workaround)
+        if (e.ctrlKey) return;
+
+        // Snapshot values needed inside the timeout (event object may be recycled)
+        const latlng = this.map.mouseEventToLatLng(e);
+        const armaCoord = this.latLngToArma(latlng);
+        const pt = eventToContainerPoint(e);
+
+        // Cancel any previously pending click
+        if (this._drawClickTimer !== null) {
+          clearTimeout(this._drawClickTimer);
+          this._drawClickTimer = null;
+        }
+
+        this._drawClickTimer = setTimeout(() => {
+          this._drawClickTimer = null;
+          // Draw mode may have been cancelled while the timer was pending
+          if (!this._isDrawing) return;
+
+          const verts = this._drawVertices;
+
+          // Check if clicking near first vertex to close
+          if (verts.length >= 3) {
+            const firstScreenPt = this.map.latLngToContainerPoint(
+              this.armaToLatLng(verts[0]),
+            );
+            const dx = pt.x - firstScreenPt.x;
+            const dy = pt.y - firstScreenPt.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= 8) {
+              closePolygon();
+              return;
+            }
+          }
+
+          this._drawVertices = [...verts, armaCoord];
+          updatePreview(pt);
+        }, 220);
+      },
+      { signal },
+    );
+
+    // dblclick — cancel the pending click timer and close the polygon immediately
+    svg.addEventListener(
+      "dblclick",
+      (e: MouseEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Cancel the debounced click so no spurious vertex is added
+        if (this._drawClickTimer !== null) {
+          clearTimeout(this._drawClickTimer);
+          this._drawClickTimer = null;
+        }
+        if (this._drawVertices.length >= 3) {
+          closePolygon();
+        }
+      },
+      { signal },
+    );
+
+    // mousedown — Ctrl+drag to pan
+    svg.addEventListener(
+      "mousedown",
+      (_e: MouseEvent) => {
+        if (_e.ctrlKey) {
+          this._drawCtrlPanning = true;
+          this.map.dragging.enable();
+        }
+      },
+      { signal },
+    );
+
+    // mouseup — stop panning
+    svg.addEventListener(
+      "mouseup",
+      (_e: MouseEvent) => {
+        if (this._drawCtrlPanning) {
+          this._drawCtrlPanning = false;
+          this.map.dragging.disable();
+        }
+      },
+      { signal },
+    );
+
+    // keydown — Backspace to undo, Escape to cancel
+    document.addEventListener(
+      "keydown",
+      (e: KeyboardEvent) => {
+        if (!this._isDrawing) return;
+        if (e.key === "Backspace") {
+          e.preventDefault();
+          if (this._drawVertices.length > 0) {
+            this._drawVertices = this._drawVertices.slice(0, -1);
+            updatePreview();
+          }
+        } else if (e.key === "Escape") {
+          const cb = this._drawCallbacks;
+          this.disableDrawMode();
+          cb?.onCancel();
+        }
+      },
+      { signal },
+    );
+
+    // Also update preview when the map is panned/zoomed so SVG points stay correct
+    const onMapMove = (): void => {
+      updatePreview();
+    };
+    this.map.on("move", onMapMove);
+    this.map.on("zoom", onMapMove);
+
+    // Store map event cleanup on the SVG element so disableDrawMode can call it
+    (svg as any)._ocapMapMoveCleanup = () => {
+      this.map.off("move", onMapMove);
+      this.map.off("zoom", onMapMove);
+    };
+  }
+
+  /**
+   * Convert an Arma world coordinate to a screen pixel position (container-relative).
+   * Used by overlay components (e.g. ActionPolygonLayer SVG) that are positioned
+   * absolutely over the map container.
+   */
+  armaToScreen(coord: ArmaCoord): { x: number; y: number } {
+    const ll = this.armaToLatLng(coord);
+    const pt = this.map.latLngToContainerPoint(ll);
+    return { x: pt.x, y: pt.y };
+  }
+
+  disableDrawMode(): void {
+    this._isDrawing = false;
+
+    // Abort all DOM event listeners
+    if (this._drawAbortController) {
+      this._drawAbortController.abort();
+      this._drawAbortController = null;
+    }
+
+    // Remove map move/zoom listeners
+    if (this._drawSvg) {
+      const cleanup = (this._drawSvg as any)._ocapMapMoveCleanup as
+        | (() => void)
+        | undefined;
+      cleanup?.();
+    }
+
+    // Re-enable map dragging
+    if (this.map) {
+      this.map.dragging.enable();
+    }
+
+    // Remove SVG overlay from DOM
+    if (this._drawSvg && this._drawSvg.parentNode) {
+      this._drawSvg.parentNode.removeChild(this._drawSvg);
+    }
+    this._drawSvg = null;
+
+    // Clear state
+    this._drawVertices = [];
+    this._drawCallbacks = null;
+    this._drawCtrlPanning = false;
+    if (this._drawClickTimer !== null) {
+      clearTimeout(this._drawClickTimer);
+      this._drawClickTimer = null;
+    }
   }
 }
